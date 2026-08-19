@@ -112,6 +112,17 @@ couple of minutes. If it never syncs, check whether other devices on the
 same network have working DNS/internet access, or try a different network
 (e.g. a phone hotspot) to confirm the clock itself is fine.
 
+**Some digit cells show blank or garbled, and which ones varies between
+boots - but the small blinking colon dots always look fine:** this is SPI
+signal-integrity noise, not a firmware bug - the colon sprite is tiny (a
+handful of pixels) so it almost always survives, while a full digit sprite
+is much more likely to pick up a bit error over long/loose breadboard jumper
+wires at high SPI speed. `TFT_eSPI_Setup/User_Setup.h` already sets a more
+conservative `SPI_FREQUENCY` (20MHz) for this reason; if it's still
+happening, double-check the SCLK and MOSI jumper wires are firmly seated
+(reseating them, or shortening the wires, usually fixes it), and keep them
+away from other fast-switching wires if possible.
+
 ## Using the clock
 
 **First boot / no saved WiFi:** the display shows "WiFi Setup" with an
