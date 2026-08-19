@@ -32,11 +32,11 @@ const uint16_t COL_DIGIT_PALETTE[8] = {
   tft.color565(255, 79, 163),  // H tens   - pink
   tft.color565(255, 159, 28),  // H units  - orange
   0,                           // (colon, unused)
-  tft.color565(61, 58, 237),   // M tens   - blue
-  tft.color565(255, 79, 163),  // M units  - pink
+  tft.color565(155, 93, 229),  // M tens   - purple
+  tft.color565(46, 204, 113),  // M units  - green
   0,                           // (colon, unused)
-  tft.color565(0, 217, 255),   // S tens   - cyan
-  tft.color565(255, 210, 63),  // S units  - yellow
+  tft.color565(255, 210, 63),  // S tens   - yellow
+  tft.color565(61, 58, 237),   // S units  - blue
 };
 
 // ---- Status bar badges -------------------------------------------------
@@ -48,7 +48,8 @@ const uint16_t COL_MONTH_BG  = tft.color565(224, 34, 45);    // red
 const uint16_t COL_MONTH_TXT = TFT_WHITE;
 const uint16_t COL_DAY_BG    = TFT_WHITE;
 const uint16_t COL_DAY_TXT   = tft.color565(20, 20, 20);
-const uint16_t COL_WEEK_BG   = tft.color565(46, 163, 89);
+const uint16_t COL_WEEK_BG   = tft.color565(255, 205, 30);   // yellow
+const uint16_t COL_WEEK_TXT  = tft.color565(35, 28, 10);      // near-black
 const uint16_t COL_DOY_BG    = tft.color565(224, 133, 45);
 const uint16_t COL_WIFI_BG   = tft.color565(196, 238, 242);  // pastel cyan
 const uint16_t COL_WIFI_ICON = tft.color565(25, 60, 80);     // dark on light bg
@@ -127,12 +128,41 @@ void drawGrid() {
   }
 }
 
+// Brightens the top portion of a just-drawn glyph towards white, fading
+// back to its normal colour by GLOSS_FRAC of the way down - a glossy
+// highlight like the top-lit look in the reference photo. Only touches
+// pixels the glyph actually painted (background stays pure black).
+const float GLOSS_FRAC     = 0.45f; // how far down the gloss extends
+const float GLOSS_STRENGTH = 0.55f; // how far towards white at the very top
+
+void applyDigitGloss(TFT_eSprite &spr, int w, int h) {
+  int gradH = (int)(h * GLOSS_FRAC);
+  for (int y = 0; y < gradH; y++) {
+    float t = GLOSS_STRENGTH * (float)(gradH - y) / gradH;
+    for (int x = 0; x < w; x++) {
+      uint16_t px = spr.readPixel(x, y);
+      if (px == 0) continue; // pure background - leave untouched
+      uint8_t r = (px >> 11) & 0x1F;
+      uint8_t g = (px >> 5) & 0x3F;
+      uint8_t b = px & 0x1F;
+      uint8_t r8 = (uint8_t)((r * 255 + 15) / 31);
+      uint8_t g8 = (uint8_t)((g * 255 + 31) / 63);
+      uint8_t b8 = (uint8_t)((b * 255 + 15) / 31);
+      r8 += (uint8_t)((255 - r8) * t);
+      g8 += (uint8_t)((255 - g8) * t);
+      b8 += (uint8_t)((255 - b8) * t);
+      spr.drawPixel(x, y, spr.color565(r8, g8, b8));
+    }
+  }
+}
+
 void drawDigitCell(int col, char ch) {
   int x = colX(col);
   digitSpr.fillSprite(COL_BG);
   digitSpr.setTextColor(COL_DIGIT_PALETTE[col], COL_BG);
   digitSpr.setTextDatum(MC_DATUM);
   digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
+  applyDigitGloss(digitSpr, CELL_DIGIT_W, CLOCK_H);
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
@@ -379,7 +409,7 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
   String weekStr = WD[timeinfo.tm_wday];
   if (weekStr != lastWeekStr) {
     lastWeekStr = weekStr;
-    drawPillBadge(weekSpr, B_WEEK, weekStr, COL_BADGE_TXT, "", COL_BADGE_TXT);
+    drawPillBadge(weekSpr, B_WEEK, weekStr, COL_WEEK_TXT, "", COL_WEEK_TXT);
   }
 
   // ---- day-of-year badge ----
