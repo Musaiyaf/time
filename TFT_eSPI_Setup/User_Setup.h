@@ -42,7 +42,7 @@
 #define LOAD_FONT6
 #define LOAD_FONT8
 #define LOAD_GFXFF   // enables the Adafruit GFX "Free Fonts" used for labels
-// The big clock digits use an anti-aliased custom font (FredokaDigits92.h,
+// The big clock digits use an anti-aliased custom font (FredokaDigits87.h,
 // loaded at runtime from a byte array via tft.loadFont()) rather than a
 // compiled-in LOAD_FONTn - SMOOTH_FONT enables that loader.
 #define SMOOTH_FONT
@@ -59,13 +59,6 @@
 // tft.init() runs. USE_HSPI_PORT sidesteps the broken FSPI macro.
 #define USE_HSPI_PORT
 
-// 40MHz is fine on a soldered/short-trace board, but on breadboard jumper
-// wires it's fast enough to pick up signal-integrity errors - symptom is
-// exactly what showed up here: sprites for some digit cells rendering
-// blank/corrupted while others (and the small colon dots) are fine, and
-// which cells fail varies between boots. Lowered to a much safer speed for
-// breadboard wiring; raise it back up if you move to a soldered board and
-// want faster redraws.
-#define SPI_FREQUENCY       20000000
-#define SPI_READ_FREQUENCY  16000000
+#define SPI_FREQUENCY       40000000
+#define SPI_READ_FREQUENCY  20000000
 #define SPI_TOUCH_FREQUENCY  2500000

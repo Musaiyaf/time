@@ -112,16 +112,17 @@ couple of minutes. If it never syncs, check whether other devices on the
 same network have working DNS/internet access, or try a different network
 (e.g. a phone hotspot) to confirm the clock itself is fine.
 
-**Some digit cells show blank or garbled, and which ones varies between
-boots - but the small blinking colon dots always look fine:** this is SPI
-signal-integrity noise, not a firmware bug - the colon sprite is tiny (a
-handful of pixels) so it almost always survives, while a full digit sprite
-is much more likely to pick up a bit error over long/loose breadboard jumper
-wires at high SPI speed. `TFT_eSPI_Setup/User_Setup.h` already sets a more
-conservative `SPI_FREQUENCY` (20MHz) for this reason; if it's still
-happening, double-check the SCLK and MOSI jumper wires are firmly seated
-(reseating them, or shortening the wires, usually fixes it), and keep them
-away from other fast-switching wires if possible.
+**Certain digits never appear (e.g. you only ever see 1, 5, 6, 7, 8, 9 —
+never 0, 2, 3 or 4), while badges and the colon dots render fine:** the
+smooth font's glyphs are too wide for the digit sprite. TFT_eSPI does *not*
+clip an oversized smooth-font glyph — `drawGlyph()` skips it entirely and
+draws nothing — so only the digits that happen to be narrow enough show up,
+and which digits are missing looks random as the time changes. Regenerate
+the `.vlw` font at a point size whose widest glyph is smaller than
+`CELL_DIGIT_W` in `clock_display.cpp` (see Customizing). Note this looks
+superficially like flaky wiring, but a giveaway that it isn't: the *same*
+digits always fail, and the serial monitor shows a clean boot with no
+crash or reset.
 
 ## Using the clock
 
@@ -175,15 +176,17 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   (`drawPillBadge()` / `carveRoundCorners()`); the month/day badge is a
   single two-tone pill (`drawMonthDayBadge()`, red month + white day).
 - **Clock digit font**: the big HH:MM:SS digits use a custom anti-aliased
-  TFT_eSPI "smooth font" (`FredokaDigits92.h`, digits 0-9 rendered from
-  [Fredoka](https://fonts.google.com/specimen/Fredoka) Bold at 92pt, OFL-1.1
-  licensed, sized so the widest digits fill their cell edge to edge)
-  embedded as a byte array and loaded at runtime via
-  `digitSpr.loadFont(FredokaDigits92)` — no filesystem/SPIFFS needed. To use
-  a different font, rasterize new glyphs into TFT_eSPI's `.vlw` format at a
-  size that fits `CELL_DIGIT_W` (50px wide) and regenerate that header;
-  `CELL_DIGIT_W`/`CELL_COLON_W` in `clock_display.cpp` control the cell
-  widths if you need to resize.
+  TFT_eSPI "smooth font" (`FredokaDigits87.h`, digits 0-9 rendered from
+  [Fredoka](https://fonts.google.com/specimen/Fredoka) Bold at 87pt, OFL-1.1
+  licensed) embedded as a byte array and loaded at runtime via
+  `digitSpr.loadFont(FredokaDigits87)` — no filesystem/SPIFFS needed. To use
+  a different font, rasterize new glyphs into TFT_eSPI's `.vlw` format and
+  regenerate that header; `CELL_DIGIT_W`/`CELL_COLON_W` in
+  `clock_display.cpp` control the cell widths if you need to resize.
+  **Every glyph must be strictly narrower than `CELL_DIGIT_W` (50px)** —
+  TFT_eSPI silently skips drawing a smooth-font glyph too wide for its
+  sprite rather than clipping it, which makes just the wide digits
+  invisible (see Troubleshooting).
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
   per-face renderer (`drawRainbowGridDigitCell()`, `drawRetroFlipDigitCell()`)
   based on `currentFace`; `ClockDisplay::nextFace()` cycles through the

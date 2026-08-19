@@ -1,7 +1,7 @@
 #include "clock_display.h"
 #include "config.h"
 #include <TFT_eSPI.h>
-#include "FredokaDigits92.h"
+#include "FredokaDigits87.h"
 // TFT_eSPI.h (with LOAD_GFXFF enabled) already pulls in every Adafruit GFX
 // free font, including these two, via its own Fonts/GFXFF/gfxfont.h. Those
 // font headers have no include guards, so including them again here would
@@ -80,13 +80,16 @@ const Badge B_WIFI  = {291, 26, COL_WIFI_BG};
 const int CLOCK_TOP = TOPBAR_H;
 const int CLOCK_H   = SCR_H - TOPBAR_H;
 
-// The clock face is HH:MM:SS -> 6 digit cells + 2 (narrower) colon cells.
-// Digit cells are sized to fit the FredokaDigits92 smooth font (see
-// FredokaDigits92.h - regenerate that file if this width changes; the
-// font's widest glyphs are 52px, 2px more than the cell, so they clip by
-// about 1px per side - not noticeable at this size); colon cells hold two
-// small blinking dots. The two widths add up to exactly SCR_W (320):
-// 50*6 + 10*2 = 320.
+// The clock face is HH:MM:SS -> 6 digit cells + 2 (narrower) colon cells;
+// colon cells hold two small blinking dots. The two widths add up to
+// exactly SCR_W (320): 50*6 + 10*2 = 320.
+//
+// IMPORTANT: every glyph in the smooth font must be strictly NARROWER than
+// CELL_DIGIT_W. TFT_eSPI does not clip an oversized smooth-font glyph, it
+// skips drawing it entirely - so a font whose widest glyphs exceed this
+// width makes those particular digits (e.g. 0/2/3/4) invisible while the
+// narrower ones still render. FredokaDigits87 is sized for a 50px cell
+// (widest glyph 49px); regenerate it if you change CELL_DIGIT_W.
 const int CELL_COUNT = 8;
 const int CELL_DIGIT_W = 50;
 const int CELL_COLON_W = 10;
@@ -370,7 +373,7 @@ void begin() {
   // and left resident on digitSpr for the life of the program - loadFont()
   // parses metrics into RAM/PSRAM, which is wasted work to redo every
   // second.
-  digitSpr.loadFont(FredokaDigits92);
+  digitSpr.loadFont(FredokaDigits87);
 
   drawGrid();
   gridDrawn = true;
