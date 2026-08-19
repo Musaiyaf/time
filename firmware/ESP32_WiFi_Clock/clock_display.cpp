@@ -1,6 +1,7 @@
 #include "clock_display.h"
 #include "config.h"
 #include <TFT_eSPI.h>
+#include "FredokaDigits75.h"
 // TFT_eSPI.h (with LOAD_GFXFF enabled) already pulls in every Adafruit GFX
 // free font, including these two, via its own Fonts/GFXFF/gfxfont.h. Those
 // font headers have no include guards, so including them again here would
@@ -15,6 +16,7 @@ TFT_eSPI tft = TFT_eSPI();
 // weeks doesn't churn the heap. Redrawn only when their content actually
 // changes, so the display never has to flicker-clear the whole panel.
 TFT_eSprite digitSpr(&tft);
+TFT_eSprite colonSpr(&tft);
 TFT_eSprite dateSpr(&tft);
 TFT_eSprite weekSpr(&tft);
 TFT_eSprite doySpr(&tft);
@@ -58,10 +60,26 @@ const Badge B_WIFI = {286, 34, COL_WIFI_BG};
 
 const int CLOCK_TOP = TOPBAR_H;
 const int CLOCK_H   = SCR_H - TOPBAR_H;
-const int CELL_COUNT = 8; // HH:MM:SS -> 2 digits, colon, 2 digits, colon, 2 digits
-const int CELL_W = SCR_W / CELL_COUNT; // 40px
 
-int digitTextSize = 1;
+// The clock face is HH:MM:SS -> 6 digit cells + 2 (narrower) colon cells.
+// Digit cells are sized to fit the FredokaDigits75 smooth font (see
+// FredokaDigits75.h - regenerate that file if this width changes); colon
+// cells just need room for two small dots. The two widths add up to
+// exactly SCR_W (320): 48*6 + 16*2 = 320.
+const int CELL_COUNT = 8;
+const int CELL_DIGIT_W = 48;
+const int CELL_COLON_W = 16;
+const int COL_W[CELL_COUNT] = {
+  CELL_DIGIT_W, CELL_DIGIT_W, CELL_COLON_W,
+  CELL_DIGIT_W, CELL_DIGIT_W, CELL_COLON_W,
+  CELL_DIGIT_W, CELL_DIGIT_W,
+};
+
+int colX(int col) {
+  int x = 0;
+  for (int i = 0; i < col; i++) x += COL_W[i];
+  return x;
+}
 
 // ---- state cache, so we only repaint what changed --------------------
 char lastDigit[CELL_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -76,8 +94,8 @@ bool isColonCell(int col) { return col == 2 || col == 5; }
 
 void drawGrid() {
   tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, COL_BG);
+  int x = 0;
   for (int i = 0; i <= CELL_COUNT; i++) {
-    int x = i * CELL_W;
     // dashed vertical separator
     for (int y = CLOCK_TOP + 4; y < SCR_H - 4; y += 6) {
       tft.drawFastVLine(x == SCR_W ? x - 1 : x, y, 3, COL_GRID);
@@ -86,46 +104,29 @@ void drawGrid() {
     int xx = (x == SCR_W) ? x - 2 : x;
     tft.fillRect(xx, CLOCK_TOP, 2, 2, COL_GRID);
     tft.fillRect(xx, SCR_H - 2, 2, 2, COL_GRID);
+    if (i < CELL_COUNT) x += COL_W[i];
   }
-}
-
-void computeDigitTextSize() {
-  tft.setTextFont(7);
-  digitTextSize = 1;
-  for (int s = 1; s <= 4; s++) {
-    tft.setTextSize(s);
-    int w = tft.textWidth("0");
-    int h = tft.fontHeight();
-    if (w <= CELL_W - 8 && h <= CLOCK_H - 14) {
-      digitTextSize = s;
-    } else {
-      break;
-    }
-  }
-  tft.setTextSize(1);
 }
 
 void drawDigitCell(int col, char ch) {
-  int x = col * CELL_W;
+  int x = colX(col);
   digitSpr.fillSprite(COL_BG);
-  digitSpr.setTextFont(7);
-  digitSpr.setTextSize(digitTextSize);
   digitSpr.setTextColor(COL_DIGIT_PALETTE[col], COL_BG);
   digitSpr.setTextDatum(MC_DATUM);
-  digitSpr.drawString(String(ch), CELL_W / 2, CLOCK_H / 2);
+  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
 void drawColonCell(int col) {
-  int x = col * CELL_W;
-  digitSpr.fillSprite(COL_BG);
-  int cx = CELL_W / 2;
+  int x = colX(col);
+  colonSpr.fillSprite(COL_BG);
+  int cx = CELL_COLON_W / 2;
   int cy = CLOCK_H / 2;
-  int r = max(3, CELL_W / 10);
+  int r = max(3, CELL_COLON_W / 6);
   int gap = CLOCK_H / 6;
-  digitSpr.fillSmoothCircle(cx, cy - gap, r, COL_COLON, COL_BG);
-  digitSpr.fillSmoothCircle(cx, cy + gap, r, COL_COLON, COL_BG);
-  digitSpr.pushSprite(x, CLOCK_TOP);
+  colonSpr.fillSmoothCircle(cx, cy - gap, r, COL_COLON, COL_BG);
+  colonSpr.fillSmoothCircle(cx, cy + gap, r, COL_COLON, COL_BG);
+  colonSpr.pushSprite(x, CLOCK_TOP);
 }
 
 void centerText2(TFT_eSprite &spr, const Badge &b, const String &part1, uint16_t col1,
@@ -189,18 +190,25 @@ void begin() {
   tft.fillScreen(COL_BG);
 
   digitSpr.setColorDepth(16);
+  colonSpr.setColorDepth(16);
   dateSpr.setColorDepth(16);
   weekSpr.setColorDepth(16);
   doySpr.setColorDepth(16);
   wifiSpr.setColorDepth(16);
 
-  digitSpr.createSprite(CELL_W, CLOCK_H);
+  digitSpr.createSprite(CELL_DIGIT_W, CLOCK_H);
+  colonSpr.createSprite(CELL_COLON_W, CLOCK_H);
   dateSpr.createSprite(B_DATE.w, TOPBAR_H);
   weekSpr.createSprite(B_WEEK.w, TOPBAR_H);
   doySpr.createSprite(B_DOY.w, TOPBAR_H);
   wifiSpr.createSprite(B_WIFI.w, TOPBAR_H);
 
-  computeDigitTextSize();
+  // Anti-aliased "beautiful curved" digit font (Fredoka Bold), loaded once
+  // and left resident on digitSpr for the life of the program - loadFont()
+  // parses metrics into RAM/PSRAM, which is wasted work to redo every
+  // second.
+  digitSpr.loadFont(FredokaDigits75);
+
   drawGrid();
   gridDrawn = true;
 }

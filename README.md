@@ -154,6 +154,15 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
 - **Colors / layout**: all badge positions and colors are constants near the
   top of `clock_display.cpp` (`B_DATE`, `B_WEEK`, `B_DOY`, `B_WIFI`, and the
   `COL_*` values).
+- **Clock digit font**: the big HH:MM:SS digits use a custom anti-aliased
+  TFT_eSPI "smooth font" (`FredokaDigits75.h`, digits 0-9 rendered from
+  [Fredoka](https://fonts.google.com/specimen/Fredoka) Bold at 75pt, OFL-1.1
+  licensed) embedded as a byte array and loaded at runtime via
+  `digitSpr.loadFont(FredokaDigits75)` — no filesystem/SPIFFS needed. To use
+  a different font, rasterize new glyphs into TFT_eSPI's `.vlw` format at a
+  size that fits `CELL_DIGIT_W` (48px wide) and regenerate that header;
+  `CELL_DIGIT_W`/`CELL_COLON_W` in `clock_display.cpp` control the cell
+  widths if you need to resize.
 - **12-hour clock**: change the `snprintf` format in
   `ClockDisplay::update()` (`clock_display.cpp`) and adjust `timeinfo.tm_hour`.
 - **Chinese weekday/lunar labels**: replace the `WD[]` table and the
