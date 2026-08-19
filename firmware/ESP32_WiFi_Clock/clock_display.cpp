@@ -81,18 +81,19 @@ const int CLOCK_TOP = TOPBAR_H;
 const int CLOCK_H   = SCR_H - TOPBAR_H;
 
 // The clock face is HH:MM:SS -> 6 digit cells + 2 (narrower) colon cells;
-// colon cells hold two small blinking dots. The two widths add up to
-// exactly SCR_W (320): 50*6 + 10*2 = 320.
+// colon cells hold two small blinking dots, kept narrow so HH/MM/SS read as
+// tight groups rather than 6 evenly-spaced digits. The two widths add up to
+// exactly SCR_W (320): 51*6 + 7*2 = 320.
 //
 // IMPORTANT: every glyph in the smooth font must be strictly NARROWER than
 // CELL_DIGIT_W. TFT_eSPI does not clip an oversized smooth-font glyph, it
 // skips drawing it entirely - so a font whose widest glyphs exceed this
 // width makes those particular digits (e.g. 0/2/3/4) invisible while the
-// narrower ones still render. FredokaDigits87 is sized for a 50px cell
-// (widest glyph 49px); regenerate it if you change CELL_DIGIT_W.
+// narrower ones still render. FredokaDigits87's widest glyph is 49px, so
+// it fits any CELL_DIGIT_W >= 50; regenerate it if you shrink this further.
 const int CELL_COUNT = 8;
-const int CELL_DIGIT_W = 50;
-const int CELL_COLON_W = 10;
+const int CELL_DIGIT_W = 51;
+const int CELL_COLON_W = 7;
 const int COL_W[CELL_COUNT] = {
   CELL_DIGIT_W, CELL_DIGIT_W, CELL_COLON_W,
   CELL_DIGIT_W, CELL_DIGIT_W, CELL_COLON_W,
@@ -109,7 +110,7 @@ int colX(int col) {
 // Tapping the BOOT button cycles between these (see ESP32_WiFi_Clock.ino).
 // The status badge row is shared by every face; only the big HH:MM:SS area
 // (and whether it gets the dashed grid lines) changes.
-enum ClockFaceId { FACE_RAINBOW_GRID = 0, FACE_RETRO_FLIP = 1, FACE_COUNT = 2 };
+enum ClockFaceId { FACE_RAINBOW_GRID = 0, FACE_SEVEN_SEG = 1, FACE_COUNT = 2 };
 int currentFace = FACE_RAINBOW_GRID;
 
 // ---- state cache, so we only repaint what changed --------------------
@@ -199,43 +200,67 @@ void drawRainbowGridDigitCell(int col, char ch) {
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
-// ---- Retro flip-clock face ---------------------------------------------
-// A white rounded "card" per digit with a dark seam straight across the
-// middle (like a real split-flap display) and a soft shadow just below it,
-// where the lower flap would sit a little behind the upper one.
-const uint16_t COL_FLIP_CARD  = TFT_WHITE;
-const uint16_t COL_FLIP_DIGIT = tft.color565(20, 20, 20);
-const uint16_t COL_FLIP_HINGE = tft.color565(10, 10, 10);
-const int FLIP_MARGIN = 3;
-const int FLIP_RADIUS = 6;
+// ---- Retro LED (7-segment) face -----------------------------------------
+// Classic digital-alarm-clock look: bright red segments on black, plus a
+// faint "ghost" of the unlit segments (like a real LED/LCD 7-segment
+// display, where you can always see the whole figure-8 outline).
+const uint16_t COL_LED_ON  = tft.color565(255, 40, 40);  // bright red, lit
+const uint16_t COL_LED_OFF = tft.color565(40, 10, 10);   // dim red, unlit
+const int LED_MARGIN = 5;  // gap between the digit box and the cell edge
+const int LED_THICK  = 8;  // segment stroke thickness
+const int LED_RADIUS = 2;  // slight rounding on each segment's corners
 
-void drawRetroFlipDigitCell(int col, char ch) {
+// Which of the 7 segments (a=top, b=top-right, c=bottom-right, d=bottom,
+// e=bottom-left, f=top-left, g=middle) are lit for each digit 0-9.
+const bool SEVEN_SEG[10][7] = {
+  {1, 1, 1, 1, 1, 1, 0}, // 0
+  {0, 1, 1, 0, 0, 0, 0}, // 1
+  {1, 1, 0, 1, 1, 0, 1}, // 2
+  {1, 1, 1, 1, 0, 0, 1}, // 3
+  {0, 1, 1, 0, 0, 1, 1}, // 4
+  {1, 0, 1, 1, 0, 1, 1}, // 5
+  {1, 0, 1, 1, 1, 1, 1}, // 6
+  {1, 1, 1, 0, 0, 0, 0}, // 7
+  {1, 1, 1, 1, 1, 1, 1}, // 8
+  {1, 1, 1, 1, 0, 1, 1}, // 9
+};
+
+void drawLedSegment(int x, int y, int w, int h, uint16_t color) {
+  digitSpr.fillRect(x, y, w, h, color);
+  int r = min(LED_RADIUS, min(w, h) / 2);
+  if (r > 0) carveRoundCorners(digitSpr, x, y, w, h, r, COL_BG);
+}
+
+void drawSevenSegDigitCell(int col, char ch) {
   int x = colX(col);
-  int cardW = CELL_DIGIT_W - 2 * FLIP_MARGIN;
-  int cardH = CLOCK_H - 2 * FLIP_MARGIN;
-
   digitSpr.fillSprite(COL_BG);
-  digitSpr.fillRect(FLIP_MARGIN, FLIP_MARGIN, cardW, cardH, COL_FLIP_CARD);
-  carveRoundCorners(digitSpr, FLIP_MARGIN, FLIP_MARGIN, cardW, cardH, FLIP_RADIUS, COL_BG);
 
-  digitSpr.setTextColor(COL_FLIP_DIGIT, COL_FLIP_CARD);
-  digitSpr.setTextDatum(MC_DATUM);
-  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
+  int W = CELL_DIGIT_W - 2 * LED_MARGIN;
+  int H = CLOCK_H - 2 * LED_MARGIN;
+  int T = LED_THICK;
+  int x0 = LED_MARGIN, y0 = LED_MARGIN;
+  int gapTop = H / 2 - T / 2; // where the upper vertical segments end
+  int gapBot = H / 2 + T / 2; // where the lower vertical segments start
+  int vH = gapTop - T;        // height of each vertical segment
 
-  int midY = CLOCK_H / 2;
-  digitSpr.fillRect(FLIP_MARGIN, midY - 1, cardW, 2, COL_FLIP_HINGE);
-  const int shadowRows = 5;
-  for (int i = 0; i < shadowRows; i++) {
-    uint8_t shade = 60 + (195 * i) / shadowRows; // dark, fading down to white
-    digitSpr.drawFastHLine(FLIP_MARGIN, midY + 1 + i, cardW, digitSpr.color565(shade, shade, shade));
+  // Segment boxes, indexed a,b,c,d,e,f,g - all relative to (x0, y0).
+  int sx[7] = { T,     W - T, W - T, T,     0,     0,     T     };
+  int sy[7] = { 0,     T,     gapBot, H - T, gapBot, T,    gapTop };
+  int sw[7] = { W - 2*T, T,   T,     W - 2*T, T,    T,    W - 2*T };
+  int sh[7] = { T,     vH,    vH,    T,     vH,    vH,    T     };
+
+  int digit = ch - '0';
+  for (int s = 0; s < 7; s++) {
+    bool on = (digit >= 0 && digit <= 9) && SEVEN_SEG[digit][s];
+    drawLedSegment(x0 + sx[s], y0 + sy[s], sw[s], sh[s], on ? COL_LED_ON : COL_LED_OFF);
   }
 
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
 void drawDigitCell(int col, char ch) {
-  if (currentFace == FACE_RETRO_FLIP) {
-    drawRetroFlipDigitCell(col, ch);
+  if (currentFace == FACE_SEVEN_SEG) {
+    drawSevenSegDigitCell(col, ch);
   } else {
     drawRainbowGridDigitCell(col, ch);
   }

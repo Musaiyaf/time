@@ -9,7 +9,7 @@ namespace ClockDisplay {
 
 void begin();
 
-// Switches to the next clock face (rainbow grid -> retro flip-clock -> ...).
+// Switches to the next clock face (rainbow grid -> retro LED display -> ...).
 // Call this from a BOOT-button tap; takes effect on the next update() call.
 void nextFace();
 

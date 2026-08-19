@@ -146,10 +146,10 @@ again, or use the "Forget saved WiFi" button on the page.
 
 **Switching clock faces:** while the clock is running, a quick tap of the
 BOOT button (press and release - not the 3s hold used for WiFi reset) cycles
-between clock faces: the rainbow grid face and a retro flip-clock face (white
-rounded cards with a dark seam through each digit, like a split-flap
-display). The choice isn't saved across a power cycle - it always starts on
-the rainbow grid face.
+between clock faces: the rainbow grid face and a retro LED face (classic
+digital-alarm-clock style 7-segment digits, bright red on black, with a
+faint ghost of the unlit segments). The choice isn't saved across a power
+cycle - it always starts on the rainbow grid face.
 
 **Time zone (advanced):** the search box above just fills in the "POSIX time
 zone string" field under **Advanced** — you can also type/paste one directly
@@ -183,12 +183,12 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   a different font, rasterize new glyphs into TFT_eSPI's `.vlw` format and
   regenerate that header; `CELL_DIGIT_W`/`CELL_COLON_W` in
   `clock_display.cpp` control the cell widths if you need to resize.
-  **Every glyph must be strictly narrower than `CELL_DIGIT_W` (50px)** —
+  **Every glyph must be strictly narrower than `CELL_DIGIT_W` (51px)** —
   TFT_eSPI silently skips drawing a smooth-font glyph too wide for its
   sprite rather than clipping it, which makes just the wide digits
   invisible (see Troubleshooting).
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
-  per-face renderer (`drawRainbowGridDigitCell()`, `drawRetroFlipDigitCell()`)
+  per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`)
   based on `currentFace`; `ClockDisplay::nextFace()` cycles through the
   `ClockFaceId` enum (`FACE_COUNT` faces total) and is wired to a BOOT-button
   tap in `ESP32_WiFi_Clock.ino`. Add a new face by adding an enum value, a
