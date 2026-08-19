@@ -32,6 +32,7 @@ WebServer server(80);
 DNSServer dnsServer;
 
 bool staMode = false; // true = connected as a WiFi client, false = setup AP
+unsigned long staConnectedAt = 0;
 
 void setup() {
   Serial.begin(115200);
@@ -67,17 +68,12 @@ void setup() {
 
   if (connected) {
     staMode = true;
-    ClockDisplay::showBootMessage("Connected!", "Syncing time...");
+    staConnectedAt = millis();
+    ClockDisplay::showBootMessage("Connected!", "Waiting for time sync...");
     WifiManager::syncTime();
-
-    // Give NTP a brief window to land before showing the clock face, so
-    // it doesn't flash 1970 for a second.
-    struct tm ti;
-    unsigned long t0 = millis();
-    while (!getLocalTime(&ti, 500) && millis() - t0 < 8000) {
-      // keep waiting
-    }
-
+    // Start the portal immediately (not gated on NTP) so the clock's IP is
+    // reachable - e.g. to check status or change WiFi/time zone - even if
+    // NTP is slow or blocked on this network.
     WebPortal::begin(&server, &dnsServer, false);
   } else {
     staMode = false;
@@ -96,6 +92,8 @@ void loop() {
 
   static unsigned long lastWifiCheck = 0;
   static unsigned long lastRender = 0;
+  static unsigned long lastWaitMsg = 0;
+  static bool timeEverSynced = false;
   unsigned long now = millis();
 
   if (WiFi.status() != WL_CONNECTED && now - lastWifiCheck > 15000) {
@@ -107,6 +105,19 @@ void loop() {
     lastRender = now;
     struct tm timeinfo;
     bool timeValid = getLocalTime(&timeinfo, 5);
-    ClockDisplay::update(timeinfo, timeValid, WiFi.status() == WL_CONNECTED, WiFi.RSSI());
+
+    if (timeValid) {
+      timeEverSynced = true;
+      ClockDisplay::update(timeinfo, true, WiFi.status() == WL_CONNECTED, WiFi.RSSI());
+    } else if (!timeEverSynced && now - lastWaitMsg >= 1000) {
+      // NTP hasn't landed yet (slow or blocked on this network) - keep the
+      // screen alive with live status instead of freezing on "Syncing
+      // time..." forever, so it's obvious the device is still working.
+      lastWaitMsg = now;
+      unsigned long elapsed = (now - staConnectedAt) / 1000;
+      ClockDisplay::showBootMessage(
+          "Waiting for NTP... " + String(elapsed) + "s",
+          "IP " + WiFi.localIP().toString());
+    }
   }
 }
