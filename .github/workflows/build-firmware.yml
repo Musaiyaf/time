@@ -75,6 +75,8 @@ jobs:
           find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.bootloader.bin" -exec cp {} dist/ \;
           find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.partitions.bin" -exec cp {} dist/ \;
           find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.merged.bin" -exec cp {} dist/ \;
+          find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.elf" -exec cp {} dist/ \;
+          find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.map" -exec cp {} dist/ \;
           ls -la dist
 
       - name: Upload firmware artifact
