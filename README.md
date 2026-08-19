@@ -82,6 +82,24 @@ TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
    - USB CDC On Boot: On (if you want Serial output over the native USB port)
 6. Select the correct port and upload.
 
+## Troubleshooting
+
+**Boot loop / `Guru Meditation Error: ... panic'ed (StoreProhibited)` with
+`EXCVADDR: 0x00000010`, crashing inside `TFT_eSPI::begin_tft_write()` right
+after `tft.init()`:** this is a known ESP32 Arduino core vs TFT_eSPI SPI-port
+numbering mismatch, not a wiring problem. On newer Arduino ESP32 cores
+(3.x), `esp32-hal-spi.h` redefines the `FSPI` macro to `0` (a *driver enum*
+value) for S2/S3/etc, but TFT_eSPI's default `#define SPI_PORT FSPI` (used
+when neither `USE_HSPI_PORT` nor `USE_FSPI_PORT` is set) expects the old
+*hardware peripheral index* convention, where only `2`/`3` are valid and `0`
+means "no SPI peripheral" (that range is reserved for the internal
+flash/PSRAM controllers) — so its raw register macro computes a base address
+of `0`, and the next write to `*_spi_user` (register offset `0x10`) faults.
+`TFT_eSPI_Setup/User_Setup.h` in this repo already works around it with
+`#define USE_HSPI_PORT`, which forces a valid literal port index; if you
+maintain your own `User_Setup.h` copy (e.g. you skipped step 3 above or
+merged in changes), make sure that line is still present.
+
 ## Using the clock
 
 **First boot / no saved WiFi:** the display shows "WiFi Setup" with an

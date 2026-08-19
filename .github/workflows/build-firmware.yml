@@ -75,17 +75,7 @@ jobs:
           find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.bootloader.bin" -exec cp {} dist/ \;
           find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.partitions.bin" -exec cp {} dist/ \;
           find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.merged.bin" -exec cp {} dist/ \;
-          find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.elf" -exec cp {} dist/ \;
-          find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.map" -exec cp {} dist/ \;
           ls -la dist
-
-      - name: TEMP decode crash backtrace
-        run: |
-          ELF=$(find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.elf" | head -n1)
-          echo "ELF sha256:"; sha256sum "$ELF"
-          ADDR2LINE=$(find ~/.arduino15/packages/esp32/tools -name "xtensa-esp32s3-elf-addr2line" | head -n1)
-          echo "Using addr2line: $ADDR2LINE"
-          "$ADDR2LINE" -pfiaC -e "$ELF" 0x4200f27f 0x4200f27c 0x4200f6c1 0x42003270 0x42002db4 0x42016aca 0x4037ebc5
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4

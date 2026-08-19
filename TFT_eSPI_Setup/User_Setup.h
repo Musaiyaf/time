@@ -43,6 +43,17 @@
 #define SMOOTH_FONT
 
 // ---- SPI ----
+// Forces TFT_eSPI to use the literal legacy hardware SPI index 3 (a real,
+// valid GPSPI peripheral) instead of its own default `#define SPI_PORT
+// FSPI`. On Arduino ESP32 core 3.x, esp32-hal-spi.h redefines FSPI to 0 for
+// S2/S3/etc (the *driver enum* value), but TFT_eSPI's raw register macro
+// REG_SPI_BASE(i) only returns a valid address for i>=2 - for i=0 it
+// returns NULL (that range is reserved for the internal flash/PSRAM SPI
+// controllers), so TFT_eSPI ends up writing through a null pointer and
+// crashes (Guru Meditation StoreProhibited, EXCVADDR 0x10) the instant
+// tft.init() runs. USE_HSPI_PORT sidesteps the broken FSPI macro.
+#define USE_HSPI_PORT
+
 #define SPI_FREQUENCY       40000000
 #define SPI_READ_FREQUENCY  20000000
 #define SPI_TOUCH_FREQUENCY  2500000
