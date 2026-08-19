@@ -1,0 +1,85 @@
+name: Build Firmware
+
+on:
+  push:
+    branches: [main, "claude/**"]
+    paths:
+      - "firmware/**"
+      - "TFT_eSPI_Setup/**"
+      - ".github/workflows/build-firmware.yml"
+  pull_request:
+    paths:
+      - "firmware/**"
+      - "TFT_eSPI_Setup/**"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      FQBN: "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=default,CPUFreq=240,FlashMode=qio,UploadSpeed=921600"
+      SKETCH_DIR: firmware/ESP32_WiFi_Clock
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install arduino-cli
+        uses: arduino/setup-arduino-cli@v2
+
+      - name: Cache arduino-cli data
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.arduino15
+            ~/Arduino/libraries
+          key: arduino-esp32s3-tft-espi-${{ runner.os }}-v1
+
+      - name: Configure arduino-cli
+        run: |
+          arduino-cli config init --overwrite
+          arduino-cli config set board_manager.additional_urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+
+      - name: Install ESP32 board core
+        run: |
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32
+
+      - name: Install TFT_eSPI library
+        run: arduino-cli lib install "TFT_eSPI"
+
+      - name: Apply display pin/driver configuration to TFT_eSPI
+        run: cp TFT_eSPI_Setup/User_Setup.h ~/Arduino/libraries/TFT_eSPI/User_Setup.h
+
+      - name: Compile firmware
+        run: |
+          arduino-cli compile \
+            --fqbn "$FQBN" \
+            --export-binaries \
+            --warnings default \
+            "$SKETCH_DIR"
+
+      - name: Collect build output
+        run: |
+          set -e
+          mkdir -p dist
+          # arduino-cli's export subdirectory name under build/ can vary by
+          # version, so locate the outputs instead of hardcoding the path.
+          MAIN_BIN=$(find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.bin" | head -n1)
+          if [ -z "$MAIN_BIN" ]; then
+            echo "Could not find compiled .bin under $SKETCH_DIR/build" >&2
+            find "$SKETCH_DIR/build" -maxdepth 3 >&2 || true
+            exit 1
+          fi
+          cp "$MAIN_BIN" dist/ESP32_WiFi_Clock.bin
+          find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.bootloader.bin" -exec cp {} dist/ \;
+          find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.partitions.bin" -exec cp {} dist/ \;
+          find "$SKETCH_DIR/build" -name "ESP32_WiFi_Clock.ino.merged.bin" -exec cp {} dist/ \;
+          ls -la dist
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ESP32_WiFi_Clock-firmware
+          path: dist/*
+          if-no-files-found: error

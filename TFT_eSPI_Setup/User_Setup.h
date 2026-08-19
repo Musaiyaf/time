@@ -1,0 +1,48 @@
+// TFT_eSPI display driver configuration for the ESP32-S3-N16R8 + 1.9"
+// ST7789 320x170 IPS panel used by this project.
+//
+// TFT_eSPI reads its configuration from
+// <Arduino/libraries/TFT_eSPI/User_Setup.h> at compile time, so this file
+// has to be COPIED (overwriting the library's own default) into that
+// location, either:
+//   - manually (see README.md "Arduino IDE setup"), or
+//   - automatically, which is what .github/workflows/build-firmware.yml
+//     does for CI builds.
+//
+// The pin numbers below MUST match firmware/ESP32_WiFi_Clock/config.h.
+
+#define USER_SETUP_ID 9001
+
+// ---- Driver ----
+#define ST7789_DRIVER
+#define TFT_RGB_ORDER TFT_RGB   // swap to TFT_BGR here if colours look wrong
+// #define TFT_INVERSION_ON      // uncomment if colours look inverted
+
+// Native panel resolution (rotation is handled at runtime in the sketch).
+#define TFT_WIDTH  170
+#define TFT_HEIGHT 320
+
+// ---- Pins (must match firmware/ESP32_WiFi_Clock/config.h) ----
+#define TFT_MISO -1
+#define TFT_MOSI 11
+#define TFT_SCLK 12
+#define TFT_CS   10
+#define TFT_DC   13
+#define TFT_RST  14
+#define TFT_BL    2
+#define TFT_BACKLIGHT_ON HIGH
+
+// ---- Fonts ----
+#define LOAD_GLCD
+#define LOAD_FONT2
+#define LOAD_FONT4
+#define LOAD_FONT6
+#define LOAD_FONT7   // 7-segment style vector font used for the clock digits
+#define LOAD_FONT8
+#define LOAD_GFXFF   // enables the Adafruit GFX "Free Fonts" used for labels
+#define SMOOTH_FONT
+
+// ---- SPI ----
+#define SPI_FREQUENCY       40000000
+#define SPI_READ_FREQUENCY  20000000
+#define SPI_TOUCH_FREQUENCY  2500000
