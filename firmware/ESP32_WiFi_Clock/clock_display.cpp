@@ -1,8 +1,10 @@
 #include "clock_display.h"
 #include "config.h"
 #include <TFT_eSPI.h>
-#include <Fonts/GFXFF/FreeSansBold9pt7b.h>
-#include <Fonts/GFXFF/FreeSansBold12pt7b.h>
+// TFT_eSPI.h (with LOAD_GFXFF enabled) already pulls in every Adafruit GFX
+// free font, including these two, via its own Fonts/GFXFF/gfxfont.h. Those
+// font headers have no include guards, so including them again here would
+// cause duplicate-definition build errors - just use the fonts directly.
 
 namespace {
 
