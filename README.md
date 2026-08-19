@@ -119,23 +119,23 @@ Access Point name and IP address. Connect a phone or laptop to that
 `ESP32-Clock-Setup-XXXX` network; a setup page should pop up automatically
 (captive portal), or open `http://192.168.4.1` manually. Tap a network from
 the scanned list (or type one under "SSID" for hidden networks), enter the
-password, optionally expand **Advanced** to set a POSIX time zone string
-and NTP servers, then **Save & Connect**. The clock reboots and connects.
+password, type your city/country into the **Time zone** search box and pick
+it from the suggestions (this covers ~430 IANA zones — e.g. "Asia/Kuala_Lumpur",
+"America/New_York", "Europe/London" — and fills in the correct POSIX string,
+including DST rules, automatically), then **Save & Connect**. The clock
+reboots and connects.
 
-**Changing WiFi later:** while connected, the same web page is served from
-the clock's own IP address (shown on its display isn't included in the
-normal clock face — check your router's client list, or hold the reset
-button to see the AP screen). Reflash or hold the BOOT button 3s to force
-setup mode again, or use the "Forget saved WiFi" button on the page.
+**Changing WiFi or time zone later:** while connected, the same web page is
+served from the clock's own IP address (shown on its display isn't included
+in the normal clock face — check your router's client list, or power-cycle
+the clock and read the IP off the brief "Waiting for NTP..." screen before it
+finishes syncing). Reflash or hold the BOOT button 3s to force setup mode
+again, or use the "Forget saved WiFi" button on the page.
 
-**Time zone:** the time zone field takes a POSIX `TZ` string, e.g.:
-- `UTC0` (UTC, default)
-- `EST5EDT,M3.2.0,M11.1.0` (US Eastern, with DST)
-- `PST8PDT,M3.2.0,M11.1.0` (US Pacific, with DST)
-- `CST-8` (China Standard Time)
-- `GMT0BST,M3.5.0/1,M10.5.0` (UK, with DST)
-
-A longer reference list is here:
+**Time zone (advanced):** the search box above just fills in the "POSIX time
+zone string" field under **Advanced** — you can also type/paste one directly
+there yourself (e.g. `UTC0`, `CST-8` for China/Malaysia/Singapore,
+`EST5EDT,M3.2.0,M11.1.0` for US Eastern with DST). Full reference list:
 https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
 
 ## Building via GitHub Actions
