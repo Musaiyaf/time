@@ -98,7 +98,7 @@ String getAPIP() {
 void syncTime() {
   String tz, ntp1, ntp2;
   loadTimeConfig(tz, ntp1, ntp2);
-  configTzTime(tz.c_str(), ntp1.c_str(), ntp2.c_str());
+  configTzTime(tz.c_str(), ntp1.c_str(), ntp2.c_str(), FALLBACK_NTP_SERVER3);
 }
 
 } // namespace WifiManager

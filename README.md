@@ -100,6 +100,18 @@ of `0`, and the next write to `*_spi_user` (register offset `0x10`) faults.
 maintain your own `User_Setup.h` copy (e.g. you skipped step 3 above or
 merged in changes), make sure that line is still present.
 
+**Stuck on "Waiting for NTP... Ns" with an IP shown (e.g.
+`192.168.1.x`):** WiFi connected fine, but the clock can't reach an NTP
+server. This is almost always the local network, not the clock - most
+commonly broken/unreachable DNS (the clock's default NTP servers,
+`pool.ntp.org` and `time.nist.gov`, are hostnames) or a router/firewall
+blocking outbound NTP (UDP port 123). The firmware always also tries a
+fixed IP-based fallback server (Cloudflare's `162.159.200.1`) that doesn't
+need DNS, so it should still sync even if DNS is the problem - give it a
+couple of minutes. If it never syncs, check whether other devices on the
+same network have working DNS/internet access, or try a different network
+(e.g. a phone hotspot) to confirm the clock itself is fine.
+
 ## Using the clock
 
 **First boot / no saved WiFi:** the display shows "WiFi Setup" with an

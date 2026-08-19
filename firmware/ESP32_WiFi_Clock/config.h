@@ -37,6 +37,11 @@
 // ---------------------------------------------------------------------
 #define DEFAULT_NTP_SERVER1 "pool.ntp.org"
 #define DEFAULT_NTP_SERVER2 "time.nist.gov"
+// Fixed third NTP fallback, always used in addition to the two above (not
+// user-configurable). Given as a raw IP so it still works if DNS on the
+// local network is broken/blocked even though NTP itself isn't - Cloudflare's
+// anycast time service.
+#define FALLBACK_NTP_SERVER3 "162.159.200.1" // time.cloudflare.com
 // POSIX TZ string, see https://github.com/esp8266/Arduino/blob/master/cores/esp8266/TZ.h
 // Examples: "UTC0", "EST5EDT,M3.2.0,M11.1.0" (US Eastern), "CST-8" (China),
 //           "GMT0BST,M3.5.0/1,M10.5.0" (UK)
