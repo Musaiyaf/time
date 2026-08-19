@@ -146,10 +146,12 @@ again, or use the "Forget saved WiFi" button on the page.
 
 **Switching clock faces:** while the clock is running, a quick tap of the
 BOOT button (press and release - not the 3s hold used for WiFi reset) cycles
-between clock faces: the rainbow grid face and a retro LED face (classic
+between three clock faces: the rainbow grid face; a retro LED face (classic
 digital-alarm-clock style 7-segment digits, bright red on black, with a
-faint ghost of the unlit segments). The choice isn't saved across a power
-cycle - it always starts on the rainbow grid face.
+faint ghost of the unlit segments); and a big single-colour face (tall,
+condensed cyan digits in a different font - Bebas Neue rather than Fredoka -
+for maximum readability at a distance). The choice isn't saved across a
+power cycle - it always starts on the rainbow grid face.
 
 **Time zone (advanced):** the search box above just fills in the "POSIX time
 zone string" field under **Advanced** — you can also type/paste one directly
@@ -175,25 +177,31 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   and the `COL_*` values). Badges render as separated, rounded-corner pills
   (`drawPillBadge()` / `carveRoundCorners()`); the month/day badge is a
   single two-tone pill (`drawMonthDayBadge()`, red month + white day).
-- **Clock digit font**: the big HH:MM:SS digits use a custom anti-aliased
-  TFT_eSPI "smooth font" (`FredokaDigits87.h`, digits 0-9 rendered from
-  [Fredoka](https://fonts.google.com/specimen/Fredoka) Bold at 87pt, OFL-1.1
-  licensed) embedded as a byte array and loaded at runtime via
-  `digitSpr.loadFont(FredokaDigits87)` — no filesystem/SPIFFS needed. To use
-  a different font, rasterize new glyphs into TFT_eSPI's `.vlw` format and
-  regenerate that header; `CELL_DIGIT_W`/`CELL_COLON_W` in
-  `clock_display.cpp` control the cell widths if you need to resize.
-  **Every glyph must be strictly narrower than `CELL_DIGIT_W` (51px)** —
-  TFT_eSPI silently skips drawing a smooth-font glyph too wide for its
-  sprite rather than clipping it, which makes just the wide digits
+- **Clock digit fonts**: the big HH:MM:SS digits use custom anti-aliased
+  TFT_eSPI "smooth fonts" embedded as byte arrays and loaded at runtime via
+  `digitSpr.loadFont(...)` — no filesystem/SPIFFS needed. The rainbow face
+  uses `FredokaDigits87.h` (digits 0-9 rendered from
+  [Fredoka](https://fonts.google.com/specimen/Fredoka) Bold at 87pt); the
+  big single-colour face uses `BebasDigits123.h` (from
+  [Bebas Neue](https://fonts.google.com/specimen/Bebas+Neue) at 123pt — a
+  tall condensed face chosen deliberately for a very different look). Both
+  are OFL-1.1 licensed. To use a different font, rasterize new glyphs into
+  TFT_eSPI's `.vlw` format and regenerate the header; `CELL_DIGIT_W`/
+  `CELL_COLON_W` in `clock_display.cpp` control the cell widths if you need
+  to resize. **Every glyph must be strictly narrower than `CELL_DIGIT_W`
+  (51px)** — TFT_eSPI silently skips drawing a smooth-font glyph too wide
+  for its sprite rather than clipping it, which makes just the wide digits
   invisible (see Troubleshooting).
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
-  per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`)
-  based on `currentFace`; `ClockDisplay::nextFace()` cycles through the
-  `ClockFaceId` enum (`FACE_COUNT` faces total) and is wired to a BOOT-button
-  tap in `ESP32_WiFi_Clock.ino`. Add a new face by adding an enum value, a
-  `drawXxxDigitCell()` function, and a branch in `drawDigitCell()` (and in
-  `drawGrid()` if it should suppress or change the dashed grid lines).
+  per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`,
+  `drawBigCyanDigitCell()`) based on `currentFace`; `ClockDisplay::nextFace()`
+  cycles through the `ClockFaceId` enum (`FACE_COUNT` faces total) and is
+  wired to a BOOT-button tap in `ESP32_WiFi_Clock.ino`. A face that wants its
+  own smooth font (rather than plain geometry, like the LED face) needs to
+  be added to `ensureDigitFont()` too, since `digitSpr` can only hold one
+  loaded font at a time. Add a new face by adding an enum value, a
+  `drawXxxDigitCell()` function, a branch in `drawDigitCell()`, and (if it
+  needs its own font) a branch in `ensureDigitFont()`.
 - **12-hour clock**: change the `snprintf` format in
   `ClockDisplay::update()` (`clock_display.cpp`) and adjust `timeinfo.tm_hour`.
 - **Chinese weekday/lunar labels**: replace the `WD[]` table and the

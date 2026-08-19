@@ -2,6 +2,7 @@
 #include "config.h"
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
+#include "BebasDigits123.h"
 // TFT_eSPI.h (with LOAD_GFXFF enabled) already pulls in every Adafruit GFX
 // free font, including these two, via its own Fonts/GFXFF/gfxfont.h. Those
 // font headers have no include guards, so including them again here would
@@ -68,7 +69,7 @@ const int TOPBAR_H = 30;
 // corners are carved back to the (black) background to round them off,
 // with a few pixels of black gap left between neighbouring badges.
 const int BADGE_MARGIN_Y = 3;
-const int BADGE_RADIUS   = 5;
+const int BADGE_RADIUS   = 6;
 
 struct Badge { int x, w; uint16_t color; };
 const Badge B_YEAR  = {3,   50, COL_YEAR_BG};
@@ -110,7 +111,7 @@ int colX(int col) {
 // Tapping the BOOT button cycles between these (see ESP32_WiFi_Clock.ino).
 // The status badge row is shared by every face; only the big HH:MM:SS area
 // (and whether it gets the dashed grid lines) changes.
-enum ClockFaceId { FACE_RAINBOW_GRID = 0, FACE_SEVEN_SEG = 1, FACE_COUNT = 2 };
+enum ClockFaceId { FACE_RAINBOW_GRID = 0, FACE_SEVEN_SEG = 1, FACE_BIG_CYAN = 2, FACE_COUNT = 3 };
 int currentFace = FACE_RAINBOW_GRID;
 
 // ---- state cache, so we only repaint what changed --------------------
@@ -183,18 +184,31 @@ uint16_t blend565(uint16_t c1, uint16_t c2, float t) {
 // Carves the 4 corners of a w x h rectangle at (x,y) within spr back to bg,
 // turning a plain filled rectangle into a rounded-corner "pill". Works
 // regardless of what colour(s) are under the corners (e.g. a two-tone
-// badge), since it only ever touches the outer r x r corner squares. The
-// edge itself is anti-aliased (blended towards bg over ~1px) rather than a
-// hard pixel test, so the curve reads as smooth instead of blocky/jagged.
+// badge), since it only ever touches the outer r x r corner squares.
+//
+// Each corner pixel's coverage is estimated by supersampling a 4x4 grid of
+// points inside it and counting how many fall outside the radius, giving
+// 17 possible blend levels towards bg rather than a simple 1px linear
+// falloff - at the small radii used here (5-6px), a single-sample edge
+// test or a crude linear blend still reads as a visible staircase, so this
+// needs the extra samples to look genuinely smooth.
+const int CORNER_SS = 4;
+
 void carveRoundCorners(TFT_eSprite &spr, int x, int y, int w, int h, int r, uint16_t bg) {
   for (int cy = 0; cy <= r; cy++) {
-    float dy = r - cy;
     for (int cx = 0; cx <= r; cx++) {
-      float dx = r - cx;
-      float dist = sqrtf(dx * dx + dy * dy);
-      float alpha = dist - (r - 0.5f);
-      if (alpha <= 0.0f) continue;      // fully inside the curve - untouched
-      if (alpha > 1.0f) alpha = 1.0f;   // fully outside - solid bg
+      int outside = 0;
+      for (int sy = 0; sy < CORNER_SS; sy++) {
+        float py = cy + (sy + 0.5f) / CORNER_SS;
+        float dy = r - py;
+        for (int sx = 0; sx < CORNER_SS; sx++) {
+          float px = cx + (sx + 0.5f) / CORNER_SS;
+          float dx = r - px;
+          if (dx * dx + dy * dy > (float)r * r) outside++;
+        }
+      }
+      if (outside == 0) continue; // fully inside the curve - untouched
+      float alpha = (float)outside / (CORNER_SS * CORNER_SS);
       int xs[2] = { x + cx, x + w - 1 - cx };
       int ys[2] = { y + cy, y + h - 1 - cy };
       for (int xi = 0; xi < 2; xi++) {
@@ -275,9 +289,41 @@ void drawSevenSegDigitCell(int col, char ch) {
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
+// ---- Big single-colour face ---------------------------------------------
+// One bold cyan colour for the whole time, in BebasDigits123 - a tall,
+// condensed, hard-edged font (deliberately different from the rounded
+// Fredoka used on the rainbow face) that reads clearly from across a room.
+const uint16_t COL_BIG_CYAN = tft.color565(0, 229, 255);
+
+void drawBigCyanDigitCell(int col, char ch) {
+  int x = colX(col);
+  digitSpr.fillSprite(COL_BG);
+  digitSpr.setTextColor(COL_BIG_CYAN, COL_BG);
+  digitSpr.setTextDatum(MC_DATUM);
+  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
+  digitSpr.pushSprite(x, CLOCK_TOP);
+}
+
+// digitSpr holds one smooth font at a time (Fredoka for the rainbow face,
+// Bebas for the big-cyan face - the LED face doesn't use a font at all).
+// Reloading a font takes a moment to parse, so this only runs when the
+// target face actually needs a different font than what's currently
+// loaded, rather than on every digit redraw.
+void ensureDigitFont() {
+  static int loadedFont = -1; // -1 = none yet, 0 = Fredoka, 1 = Bebas
+  int needed = (currentFace == FACE_BIG_CYAN) ? 1 : 0;
+  if (needed == loadedFont) return;
+  digitSpr.unloadFont();
+  if (needed == 1) digitSpr.loadFont(BebasDigits123);
+  else digitSpr.loadFont(FredokaDigits87);
+  loadedFont = needed;
+}
+
 void drawDigitCell(int col, char ch) {
   if (currentFace == FACE_SEVEN_SEG) {
     drawSevenSegDigitCell(col, ch);
+  } else if (currentFace == FACE_BIG_CYAN) {
+    drawBigCyanDigitCell(col, ch);
   } else {
     drawRainbowGridDigitCell(col, ch);
   }
@@ -432,11 +478,7 @@ void begin() {
   doySpr.createSprite(B_DOY.w, TOPBAR_H);
   wifiSpr.createSprite(B_WIFI.w, TOPBAR_H);
 
-  // Anti-aliased "beautiful curved" digit font (Fredoka Bold), loaded once
-  // and left resident on digitSpr for the life of the program - loadFont()
-  // parses metrics into RAM/PSRAM, which is wasted work to redo every
-  // second.
-  digitSpr.loadFont(FredokaDigits87);
+  ensureDigitFont(); // loads FredokaDigits87 for the default rainbow face
 
   drawGrid();
   gridDrawn = true;
@@ -447,6 +489,7 @@ void begin() {
 // away instead of waiting for a digit to actually change.
 void nextFace() {
   currentFace = (currentFace + 1) % FACE_COUNT;
+  ensureDigitFont();
   gridDrawn = false;
 }
 
