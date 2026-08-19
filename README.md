@@ -152,15 +152,18 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
 ## Customizing
 
 - **Colors / layout**: all badge positions and colors are constants near the
-  top of `clock_display.cpp` (`B_DATE`, `B_WEEK`, `B_DOY`, `B_WIFI`, and the
-  `COL_*` values).
+  top of `clock_display.cpp` (`B_YEAR`, `B_MDAY`, `B_WEEK`, `B_DOY`, `B_WIFI`,
+  and the `COL_*` values). Badges render as separated, rounded-corner pills
+  (`drawPillBadge()` / `carveRoundCorners()`); the month/day badge is a
+  single two-tone pill (`drawMonthDayBadge()`, red month + white day).
 - **Clock digit font**: the big HH:MM:SS digits use a custom anti-aliased
-  TFT_eSPI "smooth font" (`FredokaDigits75.h`, digits 0-9 rendered from
-  [Fredoka](https://fonts.google.com/specimen/Fredoka) Bold at 75pt, OFL-1.1
-  licensed) embedded as a byte array and loaded at runtime via
-  `digitSpr.loadFont(FredokaDigits75)` — no filesystem/SPIFFS needed. To use
+  TFT_eSPI "smooth font" (`FredokaDigits92.h`, digits 0-9 rendered from
+  [Fredoka](https://fonts.google.com/specimen/Fredoka) Bold at 92pt, OFL-1.1
+  licensed, sized so the widest digits fill their cell edge to edge)
+  embedded as a byte array and loaded at runtime via
+  `digitSpr.loadFont(FredokaDigits92)` — no filesystem/SPIFFS needed. To use
   a different font, rasterize new glyphs into TFT_eSPI's `.vlw` format at a
-  size that fits `CELL_DIGIT_W` (48px wide) and regenerate that header;
+  size that fits `CELL_DIGIT_W` (52px wide) and regenerate that header;
   `CELL_DIGIT_W`/`CELL_COLON_W` in `clock_display.cpp` control the cell
   widths if you need to resize.
 - **12-hour clock**: change the `snprintf` format in

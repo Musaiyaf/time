@@ -39,7 +39,7 @@
 #define LOAD_FONT6
 #define LOAD_FONT8
 #define LOAD_GFXFF   // enables the Adafruit GFX "Free Fonts" used for labels
-// The big clock digits use an anti-aliased custom font (FredokaDigits75.h,
+// The big clock digits use an anti-aliased custom font (FredokaDigits92.h,
 // loaded at runtime from a byte array via tft.loadFont()) rather than a
 // compiled-in LOAD_FONTn - SMOOTH_FONT enables that loader.
 #define SMOOTH_FONT
