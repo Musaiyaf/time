@@ -9,6 +9,10 @@ namespace ClockDisplay {
 
 void begin();
 
+// Switches to the next clock face (rainbow grid -> retro flip-clock -> ...).
+// Call this from a BOOT-button tap; takes effect on the next update() call.
+void nextFace();
+
 // Simple centered status text, used while booting / connecting / in
 // setup mode (before the clock face is shown).
 void showBootMessage(const String &line1, const String &line2 = "");

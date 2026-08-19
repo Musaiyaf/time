@@ -132,6 +132,13 @@ the clock and read the IP off the brief "Waiting for NTP..." screen before it
 finishes syncing). Reflash or hold the BOOT button 3s to force setup mode
 again, or use the "Forget saved WiFi" button on the page.
 
+**Switching clock faces:** while the clock is running, a quick tap of the
+BOOT button (press and release - not the 3s hold used for WiFi reset) cycles
+between clock faces: the rainbow grid face and a retro flip-clock face (white
+rounded cards with a dark seam through each digit, like a split-flap
+display). The choice isn't saved across a power cycle - it always starts on
+the rainbow grid face.
+
 **Time zone (advanced):** the search box above just fills in the "POSIX time
 zone string" field under **Advanced** — you can also type/paste one directly
 there yourself (e.g. `UTC0`, `CST-8` for China/Malaysia/Singapore,
@@ -163,9 +170,16 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   embedded as a byte array and loaded at runtime via
   `digitSpr.loadFont(FredokaDigits92)` — no filesystem/SPIFFS needed. To use
   a different font, rasterize new glyphs into TFT_eSPI's `.vlw` format at a
-  size that fits `CELL_DIGIT_W` (52px wide) and regenerate that header;
+  size that fits `CELL_DIGIT_W` (50px wide) and regenerate that header;
   `CELL_DIGIT_W`/`CELL_COLON_W` in `clock_display.cpp` control the cell
   widths if you need to resize.
+- **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
+  per-face renderer (`drawRainbowGridDigitCell()`, `drawRetroFlipDigitCell()`)
+  based on `currentFace`; `ClockDisplay::nextFace()` cycles through the
+  `ClockFaceId` enum (`FACE_COUNT` faces total) and is wired to a BOOT-button
+  tap in `ESP32_WiFi_Clock.ino`. Add a new face by adding an enum value, a
+  `drawXxxDigitCell()` function, and a branch in `drawDigitCell()` (and in
+  `drawGrid()` if it should suppress or change the dashed grid lines).
 - **12-hour clock**: change the `snprintf` format in
   `ClockDisplay::update()` (`clock_display.cpp`) and adjust `timeinfo.tm_hour`.
 - **Chinese weekday/lunar labels**: replace the `WD[]` table and the

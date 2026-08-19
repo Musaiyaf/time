@@ -7,7 +7,8 @@
 //   optionally a POSIX time zone + NTP servers. Saving reboots the clock,
 //   which then connects and syncs time over NTP.
 // - Hold the BOOT button (GPIO0) for 3s at power-up to wipe saved WiFi
-//   settings and return to setup mode.
+//   settings and return to setup mode. A quick tap of the same button while
+//   the clock is running cycles between clock faces instead.
 //
 // Board settings (Arduino IDE / arduino-cli):
 //   Board: "ESP32S3 Dev Module"
@@ -99,6 +100,25 @@ void loop() {
   if (WiFi.status() != WL_CONNECTED && now - lastWifiCheck > 15000) {
     lastWifiCheck = now;
     WiFi.reconnect();
+  }
+
+  // A quick tap of the BOOT button (short press-and-release, debounced)
+  // cycles the clock face. This is separate from the "hold 3s at power-up
+  // to reset WiFi" gesture in setup(), which only runs once at boot.
+  static int lastButtonRead = HIGH;
+  static unsigned long lastButtonChangeMs = 0;
+  const unsigned long BUTTON_DEBOUNCE_MS = 40;
+  int buttonRead = digitalRead(WIFI_RESET_BUTTON_PIN);
+  if (buttonRead != lastButtonRead) {
+    lastButtonChangeMs = now;
+    lastButtonRead = buttonRead;
+  }
+  static int buttonStable = HIGH;
+  if (now - lastButtonChangeMs > BUTTON_DEBOUNCE_MS && buttonRead != buttonStable) {
+    buttonStable = buttonRead;
+    if (buttonStable == LOW) { // pressed (active low, INPUT_PULLUP)
+      ClockDisplay::nextFace();
+    }
   }
 
   if (now - lastRender >= 200) {

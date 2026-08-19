@@ -26,6 +26,7 @@ TFT_eSprite wifiSpr(&tft);
 // ---- Theme colours (approximating the reference photo) -------------
 const uint16_t COL_BG        = TFT_BLACK;
 const uint16_t COL_GRID      = tft.color565(55, 60, 68);
+const uint16_t COL_COLON     = TFT_WHITE;
 // One vivid colour per digit cell (HH:MM:SS -> cells 0,1, 3,4, 6,7; the
 // colon cells 2 and 5 are unused here), rainbow-style like the reference.
 const uint16_t COL_DIGIT_PALETTE[8] = {
@@ -79,15 +80,16 @@ const Badge B_WIFI  = {291, 26, COL_WIFI_BG};
 const int CLOCK_TOP = TOPBAR_H;
 const int CLOCK_H   = SCR_H - TOPBAR_H;
 
-// The clock face is HH:MM:SS -> 6 digit cells + 2 (narrower) group-gap
-// cells. Digit cells are sized to exactly fit the FredokaDigits92 smooth
-// font edge-to-edge (see FredokaDigits92.h - regenerate that file if this
-// width changes); the gap cells are just blank space separating HH/MM/SS
-// (no colon glyph is drawn there any more). The two widths add up to
-// exactly SCR_W (320): 52*6 + 4*2 = 320.
+// The clock face is HH:MM:SS -> 6 digit cells + 2 (narrower) colon cells.
+// Digit cells are sized to fit the FredokaDigits92 smooth font (see
+// FredokaDigits92.h - regenerate that file if this width changes; the
+// font's widest glyphs are 52px, 2px more than the cell, so they clip by
+// about 1px per side - not noticeable at this size); colon cells hold two
+// small blinking dots. The two widths add up to exactly SCR_W (320):
+// 50*6 + 10*2 = 320.
 const int CELL_COUNT = 8;
-const int CELL_DIGIT_W = 52;
-const int CELL_COLON_W = 4;
+const int CELL_DIGIT_W = 50;
+const int CELL_COLON_W = 10;
 const int COL_W[CELL_COUNT] = {
   CELL_DIGIT_W, CELL_DIGIT_W, CELL_COLON_W,
   CELL_DIGIT_W, CELL_DIGIT_W, CELL_COLON_W,
@@ -100,6 +102,13 @@ int colX(int col) {
   return x;
 }
 
+// ---- clock faces --------------------------------------------------------
+// Tapping the BOOT button cycles between these (see ESP32_WiFi_Clock.ino).
+// The status badge row is shared by every face; only the big HH:MM:SS area
+// (and whether it gets the dashed grid lines) changes.
+enum ClockFaceId { FACE_RAINBOW_GRID = 0, FACE_RETRO_FLIP = 1, FACE_COUNT = 2 };
+int currentFace = FACE_RAINBOW_GRID;
+
 // ---- state cache, so we only repaint what changed --------------------
 char lastDigit[CELL_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0};
 bool gridDrawn = false;
@@ -109,11 +118,13 @@ String lastWeekStr = "\x01";
 int lastYday = -999;
 bool lastWifiConnected = true; // force first draw
 int lastWifiBars = -1;
+int lastColonVisible = -1; // -1 = not drawn yet, forces first draw
 
 bool isColonCell(int col) { return col == 2 || col == 5; }
 
 void drawGrid() {
   tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, COL_BG);
+  if (currentFace != FACE_RAINBOW_GRID) return; // other faces: plain black
   int x = 0;
   for (int i = 0; i <= CELL_COUNT; i++) {
     // dashed vertical separator
@@ -156,22 +167,6 @@ void applyDigitGloss(TFT_eSprite &spr, int w, int h) {
   }
 }
 
-void drawDigitCell(int col, char ch) {
-  int x = colX(col);
-  digitSpr.fillSprite(COL_BG);
-  digitSpr.setTextColor(COL_DIGIT_PALETTE[col], COL_BG);
-  digitSpr.setTextDatum(MC_DATUM);
-  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
-  applyDigitGloss(digitSpr, CELL_DIGIT_W, CLOCK_H);
-  digitSpr.pushSprite(x, CLOCK_TOP);
-}
-
-void drawColonCell(int col) {
-  int x = colX(col);
-  colonSpr.fillSprite(COL_BG);
-  colonSpr.pushSprite(x, CLOCK_TOP);
-}
-
 // Carves the 4 corners of a w x h rectangle at (x,y) within spr back to bg,
 // turning a plain filled rectangle into a rounded-corner "pill". Works
 // regardless of what colour(s) are under the corners (e.g. a two-tone
@@ -189,6 +184,72 @@ void carveRoundCorners(TFT_eSprite &spr, int x, int y, int w, int h, int r, uint
       }
     }
   }
+}
+
+void drawRainbowGridDigitCell(int col, char ch) {
+  int x = colX(col);
+  digitSpr.fillSprite(COL_BG);
+  digitSpr.setTextColor(COL_DIGIT_PALETTE[col], COL_BG);
+  digitSpr.setTextDatum(MC_DATUM);
+  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
+  applyDigitGloss(digitSpr, CELL_DIGIT_W, CLOCK_H);
+  digitSpr.pushSprite(x, CLOCK_TOP);
+}
+
+// ---- Retro flip-clock face ---------------------------------------------
+// A white rounded "card" per digit with a dark seam straight across the
+// middle (like a real split-flap display) and a soft shadow just below it,
+// where the lower flap would sit a little behind the upper one.
+const uint16_t COL_FLIP_CARD  = TFT_WHITE;
+const uint16_t COL_FLIP_DIGIT = tft.color565(20, 20, 20);
+const uint16_t COL_FLIP_HINGE = tft.color565(10, 10, 10);
+const int FLIP_MARGIN = 3;
+const int FLIP_RADIUS = 6;
+
+void drawRetroFlipDigitCell(int col, char ch) {
+  int x = colX(col);
+  int cardW = CELL_DIGIT_W - 2 * FLIP_MARGIN;
+  int cardH = CLOCK_H - 2 * FLIP_MARGIN;
+
+  digitSpr.fillSprite(COL_BG);
+  digitSpr.fillRect(FLIP_MARGIN, FLIP_MARGIN, cardW, cardH, COL_FLIP_CARD);
+  carveRoundCorners(digitSpr, FLIP_MARGIN, FLIP_MARGIN, cardW, cardH, FLIP_RADIUS, COL_BG);
+
+  digitSpr.setTextColor(COL_FLIP_DIGIT, COL_FLIP_CARD);
+  digitSpr.setTextDatum(MC_DATUM);
+  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
+
+  int midY = CLOCK_H / 2;
+  digitSpr.fillRect(FLIP_MARGIN, midY - 1, cardW, 2, COL_FLIP_HINGE);
+  const int shadowRows = 5;
+  for (int i = 0; i < shadowRows; i++) {
+    uint8_t shade = 60 + (195 * i) / shadowRows; // dark, fading down to white
+    digitSpr.drawFastHLine(FLIP_MARGIN, midY + 1 + i, cardW, digitSpr.color565(shade, shade, shade));
+  }
+
+  digitSpr.pushSprite(x, CLOCK_TOP);
+}
+
+void drawDigitCell(int col, char ch) {
+  if (currentFace == FACE_RETRO_FLIP) {
+    drawRetroFlipDigitCell(col, ch);
+  } else {
+    drawRainbowGridDigitCell(col, ch);
+  }
+}
+
+void drawColonCell(int col, bool visible) {
+  int x = colX(col);
+  colonSpr.fillSprite(COL_BG);
+  if (visible) {
+    int cx = CELL_COLON_W / 2;
+    int cy = CLOCK_H / 2;
+    int r = max(3, CELL_COLON_W / 6);
+    int gap = CLOCK_H / 6;
+    colonSpr.fillSmoothCircle(cx, cy - gap, r, COL_COLON, COL_BG);
+    colonSpr.fillSmoothCircle(cx, cy + gap, r, COL_COLON, COL_BG);
+  }
+  colonSpr.pushSprite(x, CLOCK_TOP);
 }
 
 // Draws a single-colour rounded pill for badge b, with 1 or 2 centred text
@@ -315,6 +376,14 @@ void begin() {
   gridDrawn = true;
 }
 
+// Cycles to the next clock face (called on a BOOT-button tap) and forces a
+// full repaint on the next update() call, so the switch is visible right
+// away instead of waiting for a digit to actually change.
+void nextFace() {
+  currentFace = (currentFace + 1) % FACE_COUNT;
+  gridDrawn = false;
+}
+
 void showBootMessage(const String &line1, const String &line2) {
   tft.fillScreen(COL_BG);
   tft.setFreeFont(&FreeSansBold12pt7b);
@@ -363,19 +432,22 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
     lastYday = -999;
     lastWifiConnected = !wifiConnected; // force redraw
     lastWifiBars = -999;
+    lastColonVisible = -1;
+    for (int i = 0; i < CELL_COUNT; i++) lastDigit[i] = 0;
   }
 
   // ---- clock digits ----
   char buf[9];
   snprintf(buf, sizeof(buf), "%02d%02d%02d", timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
   // buf: H H M M S S  -> map into the 8 cells (2 colon cells in between)
+  // The colon dots blink once a second (on for even seconds, off for odd).
+  int colonVisible = (timeinfo.tm_sec % 2 == 0) ? 1 : 0;
   const char *src = buf;
   int srcIdx = 0;
   for (int col = 0; col < CELL_COUNT; col++) {
     if (isColonCell(col)) {
-      if (lastDigit[col] != ':') {
-        drawColonCell(col);
-        lastDigit[col] = ':';
+      if (colonVisible != lastColonVisible) {
+        drawColonCell(col, colonVisible);
       }
       continue;
     }
@@ -385,6 +457,7 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
       lastDigit[col] = ch;
     }
   }
+  lastColonVisible = colonVisible;
 
   // ---- year badge ----
   char yearBuf[5];
