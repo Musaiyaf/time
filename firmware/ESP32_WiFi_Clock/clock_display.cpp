@@ -171,20 +171,37 @@ void applyDigitGloss(TFT_eSprite &spr, int w, int h) {
   }
 }
 
+uint16_t blend565(uint16_t c1, uint16_t c2, float t) {
+  int r1 = (c1 >> 11) & 0x1F, g1 = (c1 >> 5) & 0x3F, b1 = c1 & 0x1F;
+  int r2 = (c2 >> 11) & 0x1F, g2 = (c2 >> 5) & 0x3F, b2 = c2 & 0x1F;
+  int r = r1 + (int)((r2 - r1) * t + 0.5f);
+  int g = g1 + (int)((g2 - g1) * t + 0.5f);
+  int b = b1 + (int)((b2 - b1) * t + 0.5f);
+  return (uint16_t)(((r & 0x1F) << 11) | ((g & 0x3F) << 5) | (b & 0x1F));
+}
+
 // Carves the 4 corners of a w x h rectangle at (x,y) within spr back to bg,
 // turning a plain filled rectangle into a rounded-corner "pill". Works
 // regardless of what colour(s) are under the corners (e.g. a two-tone
-// badge), since it only ever touches the outer r x r corner squares.
+// badge), since it only ever touches the outer r x r corner squares. The
+// edge itself is anti-aliased (blended towards bg over ~1px) rather than a
+// hard pixel test, so the curve reads as smooth instead of blocky/jagged.
 void carveRoundCorners(TFT_eSprite &spr, int x, int y, int w, int h, int r, uint16_t bg) {
-  for (int cy = 0; cy < r; cy++) {
-    int dy = r - cy;
-    for (int cx = 0; cx < r; cx++) {
-      int dx = r - cx;
-      if (dx * dx + dy * dy > r * r) {
-        spr.drawPixel(x + cx,         y + cy,         bg);
-        spr.drawPixel(x + w - 1 - cx, y + cy,         bg);
-        spr.drawPixel(x + cx,         y + h - 1 - cy, bg);
-        spr.drawPixel(x + w - 1 - cx, y + h - 1 - cy, bg);
+  for (int cy = 0; cy <= r; cy++) {
+    float dy = r - cy;
+    for (int cx = 0; cx <= r; cx++) {
+      float dx = r - cx;
+      float dist = sqrtf(dx * dx + dy * dy);
+      float alpha = dist - (r - 0.5f);
+      if (alpha <= 0.0f) continue;      // fully inside the curve - untouched
+      if (alpha > 1.0f) alpha = 1.0f;   // fully outside - solid bg
+      int xs[2] = { x + cx, x + w - 1 - cx };
+      int ys[2] = { y + cy, y + h - 1 - cy };
+      for (int xi = 0; xi < 2; xi++) {
+        for (int yi = 0; yi < 2; yi++) {
+          uint16_t cur = spr.readPixel(xs[xi], ys[yi]);
+          spr.drawPixel(xs[xi], ys[yi], blend565(cur, bg, alpha));
+        }
       }
     }
   }
@@ -306,6 +323,27 @@ void drawPillBadge(TFT_eSprite &spr, const Badge &b, const String &part1, uint16
   spr.pushSprite(b.x, 0);
 }
 
+// Draws each character of s individually with gap extra pixels between
+// them, as a group centred on (cx, cy). Plain drawString() sets consecutive
+// characters edge-to-edge; this loosens that up a bit for a two-character
+// badge value like "08" where the digits otherwise look glued together.
+void drawSpacedDigits(TFT_eSprite &spr, const String &s, int cx, int cy, int gap) {
+  int n = s.length();
+  int widths[4];
+  int totalW = 0;
+  for (int i = 0; i < n && i < 4; i++) {
+    widths[i] = spr.textWidth(String(s[i]));
+    totalW += widths[i];
+  }
+  totalW += gap * (n - 1);
+  spr.setTextDatum(ML_DATUM);
+  int x = cx - totalW / 2;
+  for (int i = 0; i < n && i < 4; i++) {
+    spr.drawString(String(s[i]), x, cy);
+    x += widths[i] + gap;
+  }
+}
+
 // Month/day badge: one rounded pill, split into a red "month" half and a
 // white "day" half with a straight seam in the middle - matches the
 // reference photo's two-tone date badge.
@@ -324,10 +362,10 @@ void drawMonthDayBadge(int mon, int mday) {
   snprintf(dayBuf, sizeof(dayBuf), "%02d", mday);
 
   mdaySpr.setFreeFont(&FreeSansBold9pt7b);
-  mdaySpr.setTextDatum(MC_DATUM);
   int midY = TOPBAR_H / 2;
   mdaySpr.setTextColor(COL_MONTH_TXT, COL_MONTH_BG);
-  mdaySpr.drawString(monBuf, splitX / 2, midY);
+  drawSpacedDigits(mdaySpr, monBuf, splitX / 2, midY, 2);
+  mdaySpr.setTextDatum(MC_DATUM);
   mdaySpr.setTextColor(COL_DAY_TXT, COL_DAY_BG);
   mdaySpr.drawString(dayBuf, splitX + (b.w - splitX) / 2, midY);
 
