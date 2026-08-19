@@ -23,7 +23,19 @@ TFT_eSprite wifiSpr(&tft);
 // ---- Theme colours (approximating the reference photo) -------------
 const uint16_t COL_BG        = TFT_BLACK;
 const uint16_t COL_GRID      = tft.color565(55, 60, 68);
-const uint16_t COL_DIGIT     = TFT_WHITE;
+const uint16_t COL_COLON     = TFT_WHITE;
+// One vivid colour per digit cell (HH:MM:SS -> cells 0,1, 3,4, 6,7; the
+// colon cells 2 and 5 are unused here), rainbow-style like the reference.
+const uint16_t COL_DIGIT_PALETTE[8] = {
+  tft.color565(255, 79, 163),  // H tens   - pink
+  tft.color565(255, 159, 28),  // H units  - orange
+  0,                           // (colon, unused)
+  tft.color565(155, 93, 229),  // M tens   - violet
+  tft.color565(247, 37, 133),  // M units  - magenta
+  0,                           // (colon, unused)
+  tft.color565(0, 217, 255),   // S tens   - cyan
+  tft.color565(255, 210, 63),  // S units  - yellow
+};
 const uint16_t COL_DATE_BG   = tft.color565(27, 111, 209);
 const uint16_t COL_WEEK_BG   = tft.color565(46, 163, 89);
 const uint16_t COL_DOY_BG    = tft.color565(224, 133, 45);
@@ -98,7 +110,7 @@ void drawDigitCell(int col, char ch) {
   digitSpr.fillSprite(COL_BG);
   digitSpr.setTextFont(7);
   digitSpr.setTextSize(digitTextSize);
-  digitSpr.setTextColor(COL_DIGIT, COL_BG);
+  digitSpr.setTextColor(COL_DIGIT_PALETTE[col], COL_BG);
   digitSpr.setTextDatum(MC_DATUM);
   digitSpr.drawString(String(ch), CELL_W / 2, CLOCK_H / 2);
   digitSpr.pushSprite(x, CLOCK_TOP);
@@ -111,8 +123,8 @@ void drawColonCell(int col) {
   int cy = CLOCK_H / 2;
   int r = max(3, CELL_W / 10);
   int gap = CLOCK_H / 6;
-  digitSpr.fillSmoothCircle(cx, cy - gap, r, COL_DIGIT, COL_BG);
-  digitSpr.fillSmoothCircle(cx, cy + gap, r, COL_DIGIT, COL_BG);
+  digitSpr.fillSmoothCircle(cx, cy - gap, r, COL_COLON, COL_BG);
+  digitSpr.fillSmoothCircle(cx, cy + gap, r, COL_COLON, COL_BG);
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
