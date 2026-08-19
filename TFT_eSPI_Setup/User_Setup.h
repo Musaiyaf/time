@@ -15,7 +15,10 @@
 
 // ---- Driver ----
 #define ST7789_DRIVER
-#define TFT_RGB_ORDER TFT_RGB   // swap to TFT_BGR here if colours look wrong
+#define TFT_RGB_ORDER TFT_BGR   // this panel's channel order is BGR, not RGB -
+                                 // every colour was rendering with red/blue
+                                 // swapped (e.g. an intended blue badge came
+                                 // out orange) until this was flipped
 // #define TFT_INVERSION_ON      // uncomment if colours look inverted
 
 // Native panel resolution (rotation is handled at runtime in the sketch).
