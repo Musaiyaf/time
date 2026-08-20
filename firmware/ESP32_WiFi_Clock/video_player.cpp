@@ -21,6 +21,22 @@ size_t frameBytes = 0;
 uint16_t *frameBuf = nullptr; // PSRAM, allocated once frameBytes is known
 size_t frameBufSize = 0;
 
+// Frame data is staged into frameBuf above, then copied pixel-by-pixel
+// into this sprite and pushed via TFT_eSprite::pushSprite() - deliberately
+// NOT tft.pushImage(frameBuf) directly, even though frameBuf already holds
+// correctly-ordered RGB565 data. This codebase hit that exact failure
+// mode once before, in Custom Face's background rendering (see
+// clock_display.cpp's pushCustomBgSlice() comment): pushImage() of a
+// large raw buffer produced scrambled "TV static" colours even with
+// swap-bytes reset first, for reasons that were never fully pinned down -
+// only going through a sprite's drawPixel()/pushSprite() (proven correct;
+// every other face already does exactly this for its own content) turned
+// out to sidestep it entirely. Lazily created because it needs a TFT_eSPI*
+// (only available once draw() is first called, not at static-init time)
+// and, like every other sprite in this firmware, never freed afterwards.
+TFT_eSprite *frameSpr = nullptr;
+int frameSprW = 0, frameSprH = 0;
+
 int curFrame = 0;
 unsigned long nextDue = 0;
 
@@ -91,20 +107,24 @@ void draw(TFT_eSPI &tft, int x, int y, int w, int h) {
   }
   if (!frameBuf) return;
 
+  if (!frameSpr) frameSpr = new TFT_eSprite(&tft);
+  if (frameSprW != w || frameSprH != h) {
+    frameSpr->setColorDepth(16);
+    frameSpr->createSprite(w, h);
+    frameSprW = w;
+    frameSprH = h;
+  }
+
   size_t offset = HEADER_SIZE + (size_t)curFrame * frameBytes;
   size_t got = SdCard::readAt(VIDEO_PATH, offset, reinterpret_cast<uint8_t *>(frameBuf), frameBytes);
   if (got == frameBytes) {
-    // Whatever last drew on this same tft (e.g. showBootMessage()'s smooth-
-    // font boot text, before the clock face ever starts) can leave its
-    // swap-bytes state set - TFT_eSPI's smooth-font rendering is known to
-    // do this (see clock_display.cpp's pushCustomBgSlice() comment, which
-    // hit the same symptom: a byte-swapped RGB565 value doesn't just look
-    // miscoloured, its 5/6/5 bit fields land on unrelated channels, which
-    // reads as scattered speckle/blocks rather than a uniformly wrong
-    // colour). Reset it explicitly before every push rather than assuming
-    // whatever ran before left it in the state pushImage() expects.
-    tft.setSwapBytes(false);
-    tft.pushImage(x, y, w, h, frameBuf);
+    for (int py = 0; py < h; py++) {
+      const uint16_t *row = frameBuf + (size_t)py * w;
+      for (int px = 0; px < w; px++) {
+        frameSpr->drawPixel(px, py, row[px]);
+      }
+    }
+    frameSpr->pushSprite(x, y);
   }
 
   curFrame = (curFrame + 1) % frameCount;
