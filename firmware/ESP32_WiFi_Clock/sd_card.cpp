@@ -10,6 +10,7 @@ namespace {
 SPIClass sdSPI(HSPI);
 bool present = false;
 File writeFile;
+File seqReadFile;
 
 // entry.name() has returned either a full path or just a base name
 // depending on core version - normalize to just the base name so paths
@@ -83,6 +84,23 @@ size_t readAt(const String &path, size_t offset, uint8_t *out, size_t len) {
   size_t got = f.read(out, len);
   f.close();
   return got;
+}
+
+bool openSeqRead(const String &path) {
+  if (!present) return false;
+  if (seqReadFile) seqReadFile.close();
+  seqReadFile = SD.open(path);
+  return (bool)seqReadFile;
+}
+
+size_t readSeqAt(size_t offset, uint8_t *out, size_t len) {
+  if (!seqReadFile) return 0;
+  if (!seqReadFile.seek(offset)) return 0;
+  return seqReadFile.read(out, len);
+}
+
+void closeSeqRead() {
+  if (seqReadFile) seqReadFile.close();
 }
 
 bool exists(const String &path) {

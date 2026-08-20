@@ -66,7 +66,11 @@ void loadHeaderIfNeeded() {
   frameCount = n;
   fps = f;
   frameBytes = bytes;
-  valid = true;
+  // Opened once here rather than per-frame in draw() - re-opening (and
+  // re-seeking from scratch) the file on every single frame read was
+  // real, avoidable overhead on top of the actual data transfer, eating
+  // into the per-frame time budget at higher frame rates.
+  valid = SdCard::openSeqRead(VIDEO_PATH);
 }
 
 } // namespace
@@ -89,6 +93,7 @@ void reset() {
 }
 
 void invalidate() {
+  SdCard::closeSeqRead();
   headerLoaded = false;
   valid = false;
   reset();
@@ -116,7 +121,7 @@ void draw(TFT_eSPI &tft, int x, int y, int w, int h) {
   }
 
   size_t offset = HEADER_SIZE + (size_t)curFrame * frameBytes;
-  size_t got = SdCard::readAt(VIDEO_PATH, offset, reinterpret_cast<uint8_t *>(frameBuf), frameBytes);
+  size_t got = SdCard::readSeqAt(offset, reinterpret_cast<uint8_t *>(frameBuf), frameBytes);
   if (got == frameBytes) {
     for (int py = 0; py < h; py++) {
       const uint16_t *row = frameBuf + (size_t)py * w;

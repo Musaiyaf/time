@@ -43,10 +43,21 @@ String readTextFile(const String &path);
 bool readImage(const String &path, uint16_t *out, int width, int height);
 
 // Reads up to len raw bytes starting at byte offset within path into out.
-// Returns the number of bytes actually read (0 if there's no card, the
-// file's missing, or offset is past its end). Used for Video Face, which
-// seeks to a specific frame's byte offset rather than reading sequentially.
+// Opens and closes the file on every call, so it's only good for one-off
+// reads (e.g. Video Face's header parsing) - repeated per-frame playback
+// reads should use openSeqRead()/readSeqAt() instead, which pay that
+// open/close cost once for the whole session rather than every frame.
 size_t readAt(const String &path, size_t offset, uint8_t *out, size_t len);
+
+// Opens path once for many subsequent readSeqAt() calls (e.g. Video Face
+// reading one frame per tick for as long as that face stays open),
+// avoiding the repeated open/seek/close overhead readAt() pays on every
+// single call. Only one such read session can be open at a time,
+// independent of the beginWrite()/writeChunk()/endWrite() write session.
+// Returns false if there's no card or the file doesn't exist.
+bool openSeqRead(const String &path);
+size_t readSeqAt(size_t offset, uint8_t *out, size_t len);
+void closeSeqRead();
 
 bool exists(const String &path);
 
