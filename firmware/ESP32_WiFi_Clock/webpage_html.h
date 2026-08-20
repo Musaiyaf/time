@@ -244,8 +244,11 @@ tzInit();
 // frames this builds and uploads. Output is fixed at 320x170 (the
 // clock's full screen - Video Face hides the status bar for a fullscreen
 // look) so the firmware side never has to scale anything - it just blits
-// whatever's here.
-var VID_OUT_W = 320, VID_OUT_H = 170, VID_FPS = 5;
+// whatever's here. 10fps (was 5) - the main loop's render throttle was
+// the bottleneck keeping this at 5 regardless of what's saved here; now
+// that it isn't, 10 is a real, visible smoothness improvement without
+// roughly doubling upload size/time again by going further.
+var VID_OUT_W = 320, VID_OUT_H = 170, VID_FPS = 10;
 var vidPanX = 0.5, vidPanY = 0.5, vidDragging = false, vidDragStart = null;
 
 function clamp01(v){ return Math.max(0, Math.min(1, v)); }

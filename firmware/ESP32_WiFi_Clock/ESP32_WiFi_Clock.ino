@@ -162,7 +162,14 @@ void loop() {
     WiFi.reconnect();
   }
 
-  if (now - lastRender >= 200) {
+  // 40ms (was 200ms): every other face only ever redraws on an actual
+  // value change (a digit, a colon blink, a badge) so polling more often
+  // just means more cheap no-op checks for them, but Video Face paces
+  // itself off this - at 200ms the outer loop itself capped it at 5fps
+  // no matter what a video's own saved fps said, which read as a slideshow
+  // rather than a video. 40ms gives comfortable headroom above the ~10fps
+  // (100ms/frame) Video Face's web upload tool now targets.
+  if (now - lastRender >= 40) {
     lastRender = now;
     struct tm timeinfo;
     bool timeValid = getLocalTime(&timeinfo, 5);
