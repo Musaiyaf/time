@@ -23,6 +23,10 @@ on-device menu.
 
 - ESP32-S3-N16R8 (16MB flash / 8MB octal PSRAM)
 - 1.9" ST7789 IPS display, 320x170, SPI interface
+- *Optional:* DS3231 battery-backed RTC module, I2C - keeps time through
+  power loss (see [Manual Mode](#using-the-clock)). Needs a CR2032 coin
+  cell in the module's holder; the firmware works fine without one, it
+  just falls back to its Jan-1 placeholder when offline instead.
 
 ### Wiring
 
@@ -43,6 +47,19 @@ wired the panel to different pins, change them in **both**:
 
 - `firmware/ESP32_WiFi_Clock/config.h`
 - `TFT_eSPI_Setup/User_Setup.h`
+
+### Optional: DS3231 RTC backup
+
+| DS3231 pin | ESP32-S3 GPIO |
+|---|---|
+| SDA | 8 |
+| SCL | 9 |
+| VCC | 3V3 |
+| GND | GND |
+
+Not wiring one up is fine — the firmware probes for it once at boot and
+just skips every RTC-related step if nothing answers. Change
+`RTC_SDA_PIN`/`RTC_SCL_PIN` in `config.h` if you wire it to different GPIOs.
 
 ### Buttons
 
@@ -74,6 +91,7 @@ firmware/ESP32_WiFi_Clock/
   clock_display.h/.cpp    - TFT_eSPI rendering of the clock theme
   menu.h/.cpp             - on-device settings menu (WiFi, Time Zone, Date/Time, About)
   tz_database.h           - ~430 IANA zones grouped by continent, for menu.cpp
+  rtc_backup.h/.cpp        - optional DS3231 backup RTC over I2C (raw Wire, no library)
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
 .github/workflows/build-firmware.yml - CI build producing a flashable .bin
 ```
@@ -199,13 +217,16 @@ level). Selecting **Settings** opens a plain-text list with three items:
   (`esp32-clock.local`), the two ways to reach the web setup page, or
   "Offline" while there's no WiFi connection (e.g. in Manual Mode).
 
-**Manual Mode:** fully offline - no WiFi, no NTP, no web setup page. The
-clock starts at `00:00:00` on 1 January of the firmware's build year (a
-placeholder) and just counts up from there using the ESP32's internal
-clock, which keeps running as long as it's powered but isn't
-battery-backed, so it resets on every power loss. Correct it from
-**Settings → Date/Time**, or connect to WiFi from **Settings → WiFi** to
-get real synced time instead.
+**Manual Mode:** fully offline - no WiFi, no NTP, no web setup page. With a
+[DS3231 backup RTC](#optional-ds3231-rtc-backup) wired up, it restores
+whatever time was last known (the RTC keeps ticking on its own battery
+through power loss); without one, it starts at `00:00:00` on 1 January of
+the firmware's build year (a placeholder). Either way it then just counts
+up using the ESP32's own clock, which isn't itself battery-backed - so
+without the RTC module, that starting point resets on every power loss.
+Correct it from **Settings → Date/Time** (also saved to the RTC if
+present), or connect to WiFi from **Settings → WiFi** to get real synced
+time instead (also backed up to the RTC once NTP lands).
 
 **Time zone (advanced):** the search box above just fills in the "POSIX time
 zone string" field under **Advanced** — you can also type/paste one directly

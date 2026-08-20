@@ -3,9 +3,11 @@
 // - Connects to WiFi using credentials saved in NVS.
 // - If there's no WiFi to connect to (none saved, or the saved network
 //   can't be reached), asks: try the on-device scan/pick flow again, or
-//   go into Manual Mode - fully offline, clock starts at 00:00:00 on 1
-//   January (of the firmware's build year) and is corrected by hand from
-//   the Settings menu's Date/Time item.
+//   go into Manual Mode - fully offline, restoring the last known time
+//   from an optional DS3231 backup RTC if one's wired up (see
+//   rtc_backup.h), otherwise starting at 00:00:00 on 1 January (of the
+//   firmware's build year) - correct it by hand from the Settings menu's
+//   Date/Time item, which also updates the RTC.
 // - Hold the OK button (GPIO0/BOOT) for 3s at power-up to wipe saved WiFi
 //   settings and force that same "no WiFi" prompt on the next boot.
 // - While the clock is running: LEFT/RIGHT tap cycles clock faces; holding
@@ -22,8 +24,9 @@
 //   Partition Scheme: "Default 4MB with spiffs" (or any scheme with OTA off)
 //
 // Library dependencies: TFT_eSPI (configured via TFT_eSPI_Setup/User_Setup.h,
-// see the repo README). WiFi, WebServer, DNSServer, ESPmDNS and Preferences ship with
-// the ESP32 Arduino core.
+// see the repo README). WiFi, WebServer, DNSServer, ESPmDNS, Wire and
+// Preferences ship with the ESP32 Arduino core. The DS3231 RTC (rtc_backup.cpp)
+// is driven directly over Wire/I2C - no extra RTC library needed.
 
 #include <WiFi.h>
 #include <WebServer.h>
@@ -34,6 +37,7 @@
 #include "web_portal.h"
 #include "clock_display.h"
 #include "menu.h"
+#include "rtc_backup.h"
 
 WebServer server(80);
 DNSServer dnsServer;
@@ -68,6 +72,7 @@ void setup() {
   ClockDisplay::begin();
   ClockDisplay::showBootMessage("ESP32 Grid Clock", "Starting...");
 
+  RtcBackup::begin(); // probes for an optional DS3231 backup RTC
   WifiManager::begin();
 
   // Hold the OK button for 3s right after boot to wipe saved WiFi. This
@@ -161,6 +166,11 @@ void loop() {
       // In Manual Mode this is the offline placeholder/hand-set clock, not
       // NTP time - still valid as far as getLocalTime() is concerned, so
       // it renders the same way, just with the WiFi badge showing off.
+      if (staMode && !timeEverSynced) {
+        // First real NTP-confirmed time this boot - back it up to the RTC
+        // (if present) so it survives the next power loss.
+        WifiManager::backupTimeToRtc();
+      }
       timeEverSynced = true;
       bool wifiUp = staMode && WiFi.status() == WL_CONNECTED;
       ClockDisplay::update(timeinfo, true, wifiUp, wifiUp ? WiFi.RSSI() : 0);

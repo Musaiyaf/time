@@ -71,3 +71,13 @@
 // don't - the IP address on the About screen still works everywhere.)
 // ---------------------------------------------------------------------
 #define MDNS_HOSTNAME "esp32-clock"
+
+// ---------------------------------------------------------------------
+// Optional DS3231 battery-backed RTC (I2C) - keeps ticking through power
+// loss so Manual (offline) mode, and the last known time in general,
+// don't reset to 00:00:00 every reboot. Entirely optional hardware: if
+// nothing responds on these pins the firmware just falls back to its
+// existing behaviour. See rtc_backup.h/.cpp.
+// ---------------------------------------------------------------------
+#define RTC_SDA_PIN 8
+#define RTC_SCL_PIN 9

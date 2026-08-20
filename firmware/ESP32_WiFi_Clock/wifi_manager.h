@@ -33,16 +33,23 @@ String getAPIP();
 // Applies the saved TZ/NTP settings and starts the SNTP client.
 void syncTime();
 
-// Offline fallback when there's no WiFi to connect to: sets the system
-// clock to 00:00:00 on 1 January of the firmware's build year (a
-// placeholder - correct it with setManualDateTime()/the Settings menu)
-// and leaves the time zone at UTC, so whatever's set is exactly what's
-// displayed. No network, no NTP.
+// Offline fallback when there's no WiFi to connect to: restores the time
+// from the DS3231 backup RTC if one's present and its battery held (see
+// rtc_backup.h), otherwise falls back to 00:00:00 on 1 January of the
+// firmware's build year (a placeholder - correct it with
+// setManualDateTime()/the Settings menu). Leaves the time zone at UTC, so
+// whatever's set is exactly what's displayed. No network, no NTP.
 void enterManualMode();
 
 // Directly sets the system clock to the given date/time (seconds are
 // reset to 0), interpreted in whatever time zone is currently active so
-// it matches what's on screen. Used by the on-device Date/Time setter.
+// it matches what's on screen, and backs it up to the RTC if present.
+// Used by the on-device Date/Time setter.
 void setManualDateTime(int year, int month, int day, int hour, int minute);
+
+// Backs up the current system time to the DS3231 RTC if present - a
+// no-op otherwise. Call once time is known-good (e.g. right after the
+// first successful NTP sync) so it survives the next power loss.
+void backupTimeToRtc();
 
 } // namespace WifiManager

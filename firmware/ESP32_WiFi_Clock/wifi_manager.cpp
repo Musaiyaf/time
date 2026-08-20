@@ -1,5 +1,6 @@
 #include "wifi_manager.h"
 #include "config.h"
+#include "rtc_backup.h"
 #include <WiFi.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
@@ -14,14 +15,14 @@ const char *NVS_NAMESPACE = "clockcfg";
 // Sets the system clock directly to the given wall-clock date/time,
 // interpreted under whatever TZ is currently active (UTC unless
 // configTzTime()/syncTime() has run this session).
-void applySystemTime(int year, int month, int day, int hour, int minute) {
+void applySystemTime(int year, int month, int day, int hour, int minute, int second = 0) {
   struct tm t = {};
   t.tm_year = year - 1900;
   t.tm_mon = month - 1;
   t.tm_mday = day;
   t.tm_hour = hour;
   t.tm_min = minute;
-  t.tm_sec = 0;
+  t.tm_sec = second;
   t.tm_isdst = -1;
   time_t epoch = mktime(&t);
   struct timeval tv = {epoch, 0};
@@ -132,14 +133,30 @@ void syncTime() {
 void enterManualMode() {
   setenv("TZ", "UTC0", 1);
   tzset();
-  // __DATE__ is always "Mmm dd yyyy" - the year is its last 4 characters.
-  const char *buildDate = __DATE__;
-  int year = atoi(buildDate + strlen(buildDate) - 4);
-  applySystemTime(year, 1, 1, 0, 0);
+
+  struct tm t = {};
+  if (!RtcBackup::read(t)) {
+    // No RTC (or its battery didn't hold) - fall back to the placeholder.
+    // __DATE__ is always "Mmm dd yyyy" - the year is its last 4 characters.
+    const char *buildDate = __DATE__;
+    int year = atoi(buildDate + strlen(buildDate) - 4);
+    t.tm_year = year - 1900;
+    t.tm_mon = 0;
+    t.tm_mday = 1;
+  }
+  applySystemTime(t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
 }
 
 void setManualDateTime(int year, int month, int day, int hour, int minute) {
   applySystemTime(year, month, day, hour, minute);
+  backupTimeToRtc();
+}
+
+void backupTimeToRtc() {
+  struct tm t;
+  if (getLocalTime(&t, 5)) {
+    RtcBackup::write(t);
+  }
 }
 
 } // namespace WifiManager
