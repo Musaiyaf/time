@@ -252,12 +252,13 @@ confirms it, and holding OK backs out a level (or exits the menu entirely
 from the top level).
 
 - **SD Card** — a read-only file browser for the [optional SD card
-  module](#optional-sd-card-browser): LEFT/RIGHT browses entries in the
-  current folder, OK opens a folder or "views" a file (its full name and
-  exact byte size — this firmware doesn't render file contents, just
-  browses them), and holding OK goes back up a folder, then out of the
-  browser entirely once you're back at the root. Says "No SD card found"
-  if nothing's wired up.
+  module](#optional-sd-card-browser): shows several entries at once as a
+  scrolled list (like a phone's file browser), not one at a time.
+  LEFT/RIGHT moves the highlighted row, OK opens a folder or "views" a
+  file (its full name and exact byte size — this firmware doesn't render
+  file contents, just browses them), and holding OK goes back up a
+  folder, then out of the browser entirely once you're back at the root.
+  Says "No SD card found" if nothing's wired up.
 - **Settings** — opens a plain-text list with four items:
   - **WiFi** — scans for nearby networks and shows them one at a time
     (LEFT/RIGHT to browse, hold OK to go back to the list without changing

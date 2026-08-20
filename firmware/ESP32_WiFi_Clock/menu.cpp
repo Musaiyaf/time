@@ -503,6 +503,66 @@ String sdParentPath(const String &path) {
   return (slash <= 0) ? "/" : path.substring(0, slash);
 }
 
+// A real scrollable list (several entries on screen at once, like a phone's
+// file browser) rather than one-entry-at-a-time - the SD card is the one
+// place in this menu where you might be picking from dozens of entries, so
+// stepping through them one by one doesn't scale the way it does for a
+// handful of menu items.
+const int SD_ROW_H = 19;
+const int SD_LIST_TOP = 28;
+const int SD_VISIBLE_ROWS = (TFT_SCREEN_HEIGHT - SD_LIST_TOP - 20) / SD_ROW_H;
+
+void drawSdList(const String &path, SdCard::Entry *entries, int count, int idx) {
+  TFT_eSPI &tft = ClockDisplay::rawDisplay();
+  tft.fillScreen(COL_BG);
+
+  tft.fillRect(0, 0, TFT_SCREEN_WIDTH, 26, COL_HEADING_BG);
+  tft.setFreeFont(&FreeSansBold9pt7b);
+  tft.setTextColor(COL_HEADING_TXT, COL_HEADING_BG);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString(path, TFT_SCREEN_WIDTH / 2, 13);
+  if (count > 0) {
+    tft.setTextDatum(MR_DATUM);
+    tft.drawString(String(idx + 1) + "/" + String(count), TFT_SCREEN_WIDTH - 6, 13);
+  }
+
+  if (count == 0) {
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(COL_ITEM_TXT_DIM, COL_BG);
+    tft.drawString("(empty)", TFT_SCREEN_WIDTH / 2, SD_LIST_TOP + 40);
+  } else {
+    int windowStart = 0;
+    if (count > SD_VISIBLE_ROWS) {
+      windowStart = idx - SD_VISIBLE_ROWS / 2;
+      windowStart = max(0, min(windowStart, count - SD_VISIBLE_ROWS));
+    }
+    int rowsToShow = min(count - windowStart, SD_VISIBLE_ROWS);
+
+    for (int i = 0; i < rowsToShow; i++) {
+      int entryIdx = windowStart + i;
+      int y = SD_LIST_TOP + i * SD_ROW_H;
+      bool sel = (entryIdx == idx);
+      const SdCard::Entry &e = entries[entryIdx];
+      uint16_t rowBg = sel ? COL_ICON_SD : COL_BG;
+      uint16_t txtColor = sel ? COL_BG : (e.isDir ? TFT_WHITE : COL_ITEM_TXT_DIM);
+
+      if (sel) tft.fillRect(0, y, TFT_SCREEN_WIDTH, SD_ROW_H, rowBg);
+      tft.setTextColor(txtColor, rowBg);
+      tft.setTextDatum(ML_DATUM);
+      tft.drawString(e.isDir ? ("[DIR] " + e.name) : e.name, 8, y + SD_ROW_H / 2);
+      if (!e.isDir) {
+        tft.setTextDatum(MR_DATUM);
+        tft.drawString(formatSize(e.size), TFT_SCREEN_WIDTH - 8, y + SD_ROW_H / 2);
+      }
+    }
+  }
+
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(COL_HINT_TXT, COL_BG);
+  tft.drawString("< > move   OK open   hold back", TFT_SCREEN_WIDTH / 2, TFT_SCREEN_HEIGHT - 10);
+  tft.setFreeFont(nullptr);
+}
+
 void runSdBrowser() {
   if (!SdCard::isPresent()) {
     drawScreen("SD CARD", COL_WARN, COL_BG, "No SD card found", COL_WARN, "", "tap OK to go back");
@@ -556,16 +616,7 @@ void runSdBrowser() {
     }
 
     if (dirtyLocal) {
-      String label, pos;
-      if (count == 0) {
-        label = "(empty)";
-      } else {
-        const SdCard::Entry &e = entries[idx];
-        label = e.isDir ? ("[DIR] " + e.name) : (e.name + "  " + formatSize(e.size));
-        pos = String(idx + 1) + " / " + String(count);
-      }
-      drawScreen(path, COL_HEADING_BG, COL_HEADING_TXT, label, COL_ICON_SD, pos,
-                 "< > browse   OK open   hold back");
+      drawSdList(path, entries, count, idx);
       dirtyLocal = false;
     }
     delay(5);

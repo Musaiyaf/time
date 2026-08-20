@@ -434,21 +434,22 @@ void ensureDigitFont() {
 }
 
 // Copies a CELL_DIGIT_W (or CELL_COLON_W)-wide, CLOCK_H-tall slice of the
-// cached Custom Face background at column x into spr, row by row - a
-// straight pushImage(w,h,data) can't be used here since each row is a
-// slice out of the middle of a wider (SCR_W) source buffer, not a
-// contiguous w*h block on its own.
+// cached Custom Face background at column x into spr, pixel by pixel.
+// Deliberately uses drawPixel() rather than pushImage(): drawPixel() is
+// already proven correct elsewhere in this file (applyDigitGloss(),
+// carveRoundCorners() both read/write pixels this way on these same
+// sprites), whereas pushImage() turned out to still produce scrambled
+// "TV static" colours here even after correcting its swap-bytes state -
+// something about its handling of a sub-rectangle pulled out of a larger
+// source buffer, on a sprite that also has a smooth font loaded, wasn't
+// behaving as documented. drawPixel() sidesteps that class of bug
+// entirely by writing each already-known-good RGB565 value directly.
 void pushCustomBgSlice(TFT_eSprite &spr, int x, int w) {
-  // pushImage() expects these as plain (non-byte-swapped) RGB565 values,
-  // matching how customBgBuf was filled - but loadFont()'s smooth-font
-  // glyph rendering (used for this face's digits) can leave a sprite's
-  // swap-bytes flag set to true from drawing the previous character, which
-  // would otherwise scramble this raw pixel data into "TV static" colours
-  // (a byte-swapped RGB565 value isn't just the wrong colour - its 5/6/5
-  // bit fields land on entirely different channels).
-  spr.setSwapBytes(false);
   for (int row = 0; row < CLOCK_H; row++) {
-    spr.pushImage(0, row, w, 1, customBgBuf + row * SCR_W + x);
+    const uint16_t *src = customBgBuf + row * SCR_W + x;
+    for (int col = 0; col < w; col++) {
+      spr.drawPixel(col, row, src[col]);
+    }
   }
 }
 
