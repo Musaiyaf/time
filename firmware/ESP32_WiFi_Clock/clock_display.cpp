@@ -93,6 +93,17 @@ const BadgeTheme THEME_CYAN = {
   tft.color565(6, 19, 24),  tft.color565(0, 229, 255),    // wifi
 };
 
+// Gold face: near-black badges with warm gold text, matching the metallic
+// gold digits' own colour.
+const BadgeTheme THEME_GOLD = {
+  tft.color565(20, 16, 8),  tft.color565(205, 165, 70),   // year
+  tft.color565(24, 18, 8),  tft.color565(205, 165, 70),   // month
+  tft.color565(14, 11, 5),  tft.color565(150, 118, 50),   // day
+  tft.color565(20, 16, 8),  tft.color565(205, 165, 70),   // week
+  tft.color565(20, 16, 8),  tft.color565(205, 165, 70),   // day-of-year
+  tft.color565(16, 13, 6),  tft.color565(205, 165, 70),   // wifi
+};
+
 // ---- Layout -----------------------------------------------------------
 const int SCR_W = TFT_SCREEN_WIDTH;
 const int SCR_H = TFT_SCREEN_HEIGHT;
@@ -147,8 +158,18 @@ int colX(int col) {
 // Tapping the BOOT button cycles between these (see ESP32_WiFi_Clock.ino).
 // The status badge row re-skins along with the big HH:MM:SS area (and
 // whether it gets the dashed grid lines) - see BadgeTheme above.
-enum ClockFaceId { FACE_RAINBOW_GRID = 0, FACE_SEVEN_SEG = 1, FACE_BIG_CYAN = 2, FACE_CUSTOM = 3, FACE_COUNT = 4 };
+enum ClockFaceId {
+  FACE_RAINBOW_GRID = 0,
+  FACE_SEVEN_SEG = 1,
+  FACE_BIG_CYAN = 2,
+  FACE_GOLD = 3,
+  FACE_CUSTOM = 4,
+  FACE_COUNT = 5
+};
 int currentFace = FACE_RAINBOW_GRID;
+
+// Rich gold, used for both the Gold face's digits and its colon dots.
+const uint16_t COL_GOLD = tft.color565(205, 165, 70);
 
 // ---- Custom face: a user-supplied background image + colours, loaded
 // from an optional SD card (see sd_card.h). Entirely optional - with no
@@ -226,6 +247,7 @@ void ensureCustomFaceLoaded() {
 const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
   if (currentFace == FACE_BIG_CYAN) return THEME_CYAN;
+  if (currentFace == FACE_GOLD) return THEME_GOLD;
   if (currentFace == FACE_CUSTOM) {
     static BadgeTheme customTheme;
     uint16_t bg = tft.color565(10, 10, 14);
@@ -426,6 +448,22 @@ void drawBigCyanDigitCell(int col, char ch) {
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
+// ---- Gold face -----------------------------------------------------------
+// Bold gold digits in BebasDigits123, with the same top-lit gloss the
+// rainbow face uses (applyDigitGloss() above) - brightening a solid gold
+// fill towards white at the top reads as a bright metallic highlight
+// glinting off the top of each numeral, the same trick a lot of real
+// gold/chrome text effects use.
+void drawGoldDigitCell(int col, char ch) {
+  int x = colX(col);
+  digitSpr.fillSprite(COL_BG);
+  digitSpr.setTextColor(COL_GOLD, COL_BG);
+  digitSpr.setTextDatum(MC_DATUM);
+  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
+  applyDigitGloss(digitSpr, CELL_DIGIT_W, CLOCK_H);
+  digitSpr.pushSprite(x, CLOCK_TOP);
+}
+
 // digitSpr holds one smooth font at a time (Fredoka for the rainbow face,
 // Bebas for the big-cyan face - the LED face doesn't use a font at all).
 // Custom face picks between the two via customCfg.fontId (from face.cfg -
@@ -436,9 +474,9 @@ void drawBigCyanDigitCell(int col, char ch) {
 // digit redraw.
 void ensureDigitFont() {
   static int loadedFont = -1; // -1 = none yet, 0 = Fredoka, 1 = Bebas
-  int needed = currentFace == FACE_CUSTOM  ? customCfg.fontId
-              : currentFace == FACE_BIG_CYAN ? 1
-                                              : 0;
+  int needed = currentFace == FACE_CUSTOM ? customCfg.fontId
+              : (currentFace == FACE_BIG_CYAN || currentFace == FACE_GOLD) ? 1
+                                                                            : 0;
   if (needed == loadedFont) return;
   digitSpr.unloadFont();
   if (needed == 1) digitSpr.loadFont(BebasDigits123);
@@ -488,6 +526,8 @@ void drawDigitCell(int col, char ch) {
     drawSevenSegDigitCell(col, ch);
   } else if (currentFace == FACE_BIG_CYAN) {
     drawBigCyanDigitCell(col, ch);
+  } else if (currentFace == FACE_GOLD) {
+    drawGoldDigitCell(col, ch);
   } else if (currentFace == FACE_CUSTOM) {
     drawCustomDigitCell(col, ch);
   } else {
@@ -508,7 +548,9 @@ void drawColonCell(int col, bool visible) {
     int cy = CLOCK_H / 2;
     int r = max(3, CELL_COLON_W / 6);
     int gap = CLOCK_H / 6;
-    uint16_t dotColor = (currentFace == FACE_CUSTOM) ? customCfg.digitColor : COL_COLON;
+    uint16_t dotColor = (currentFace == FACE_CUSTOM) ? customCfg.digitColor
+                       : (currentFace == FACE_GOLD)   ? COL_GOLD
+                                                       : COL_COLON;
     colonSpr.fillSmoothCircle(cx, cy - gap, r, dotColor, COL_BG);
     colonSpr.fillSmoothCircle(cx, cy + gap, r, dotColor, COL_BG);
   }

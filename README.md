@@ -204,11 +204,14 @@ your router's client list instead). Reflash, hold OK for 3s at power-up, or
 use the on-device WiFi menu item to reconnect to a different network.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between four clock faces: the rainbow grid face; a retro LED face
+cycle between five clock faces: the rainbow grid face; a retro LED face
 (classic digital-alarm-clock style 7-segment digits, bright red on black,
 with a faint ghost of the unlit segments); a big single-colour face (tall,
 condensed cyan digits in a different font - Bebas Neue rather than Fredoka
-- for maximum readability at a distance); and [**Custom**](#custom-face),
+- for maximum readability at a distance); a gold face (the same Bebas Neue
+digits, filled a rich metallic gold with a bright top-lit gloss - the same
+highlight effect the rainbow face uses, just applied to a solid gold fill
+instead of a different colour per digit); and [**Custom**](#custom-face),
 which shows your own background image and colours from an SD card. The
 status bar re-skins to match whichever face is active. The choice isn't
 saved across a power cycle - it always starts on the rainbow grid face.
