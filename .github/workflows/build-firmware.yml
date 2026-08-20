@@ -17,7 +17,12 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      FQBN: "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=default,CPUFreq=240,FlashMode=qio,UploadSpeed=921600"
+      # PartitionScheme=huge_app (3MB app / 1MB SPIFFS, no OTA) instead of
+      # the default OTA-sized scheme (~1.25MB app) - this sketch doesn't use
+      # OTA or a filesystem partition, and the default scheme left almost
+      # no headroom on the 16MB flash even before the Photo Gold face's
+      # ~220KB of digit bitmaps pushed it over the limit entirely.
+      FQBN: "esp32:esp32:esp32s3:PSRAM=opi,FlashSize=16M,PartitionScheme=huge_app,CPUFreq=240,FlashMode=qio,UploadSpeed=921600"
       SKETCH_DIR: firmware/ESP32_WiFi_Clock
 
     steps:
