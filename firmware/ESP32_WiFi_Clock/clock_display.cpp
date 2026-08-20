@@ -1,6 +1,7 @@
 #include "clock_display.h"
 #include "config.h"
 #include "sd_card.h"
+#include "video_player.h"
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
 #include "BebasDigits123.h"
@@ -165,7 +166,8 @@ enum ClockFaceId {
   FACE_GOLD = 2,
   FACE_SPECTRUM = 3,
   FACE_CUSTOM = 4,
-  FACE_COUNT = 5
+  FACE_VIDEO = 5,
+  FACE_COUNT = 6
 };
 int currentFace = FACE_RAINBOW_GRID;
 
@@ -264,7 +266,7 @@ void ensureCustomFaceLoaded() {
 const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
   if (currentFace == FACE_GOLD) return THEME_GOLD;
-  if (currentFace == FACE_SPECTRUM) return THEME_SPECTRUM;
+  if (currentFace == FACE_SPECTRUM || currentFace == FACE_VIDEO) return THEME_SPECTRUM;
   if (currentFace == FACE_CUSTOM) {
     static BadgeTheme customTheme;
     uint16_t bg = tft.color565(10, 10, 14);
@@ -728,6 +730,12 @@ void begin() {
   gridDrawn = true;
 }
 
+// Restarts Video Face playback from frame 0 every time it's (re)entered,
+// rather than resuming mid-clip.
+void ensureVideoFaceEntered() {
+  if (currentFace == FACE_VIDEO) VideoPlayer::reset();
+}
+
 // Cycles to the next/previous clock face and forces a full repaint on the
 // next update() call, so the switch is visible right away instead of
 // waiting for a digit to actually change.
@@ -735,6 +743,7 @@ void nextFace() {
   currentFace = (currentFace + 1) % FACE_COUNT;
   ensureCustomFaceLoaded(); // must run before ensureDigitFont() - it's what sets customCfg.fontId
   ensureDigitFont();
+  ensureVideoFaceEntered();
   gridDrawn = false;
 }
 
@@ -742,6 +751,7 @@ void prevFace() {
   currentFace = (currentFace + FACE_COUNT - 1) % FACE_COUNT;
   ensureCustomFaceLoaded(); // must run before ensureDigitFont() - it's what sets customCfg.fontId
   ensureDigitFont();
+  ensureVideoFaceEntered();
   gridDrawn = false;
 }
 
@@ -811,19 +821,39 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
   // buf: H H M M S S  -> map into the 8 cells (2 colon cells in between)
   // The colon dots blink once a second (on for even seconds, off for odd).
   int colonVisible = (timeinfo.tm_sec % 2 == 0) ? 1 : 0;
-  const char *src = buf;
-  int srcIdx = 0;
-  for (int col = 0; col < CELL_COUNT; col++) {
-    if (isColonCell(col)) {
-      if (colonVisible != lastColonVisible) {
-        drawColonCell(col, colonVisible);
-      }
-      continue;
+  if (currentFace == FACE_VIDEO) {
+    // Video Face replaces the whole digit area with looping frames read
+    // straight off the SD card (see video_player.h) - entirely independent
+    // of the web portal/WiFi, so it keeps playing after the browser tab
+    // that uploaded it is closed. VideoPlayer::draw() self-paces off the
+    // video's own saved fps and no-ops between frames, so it's cheap to
+    // call on every tick regardless of this face's usual per-second cadence.
+    if (VideoPlayer::isAvailable()) {
+      VideoPlayer::draw(tft, 0, CLOCK_TOP, SCR_W, CLOCK_H);
+    } else {
+      tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, COL_BG);
+      tft.setFreeFont(&FreeSansBold9pt7b);
+      tft.setTextColor(TFT_WHITE, COL_BG);
+      tft.setTextDatum(MC_DATUM);
+      tft.drawString("No video saved", SCR_W / 2, CLOCK_TOP + CLOCK_H / 2 - 12);
+      tft.drawString("Upload one from the web portal", SCR_W / 2, CLOCK_TOP + CLOCK_H / 2 + 12);
+      tft.setFreeFont(nullptr);
     }
-    char ch = src[srcIdx++];
-    if (lastDigit[col] != ch) {
-      drawDigitCell(col, ch);
-      lastDigit[col] = ch;
+  } else {
+    const char *src = buf;
+    int srcIdx = 0;
+    for (int col = 0; col < CELL_COUNT; col++) {
+      if (isColonCell(col)) {
+        if (colonVisible != lastColonVisible) {
+          drawColonCell(col, colonVisible);
+        }
+        continue;
+      }
+      char ch = src[srcIdx++];
+      if (lastDigit[col] != ch) {
+        drawDigitCell(col, ch);
+        lastDigit[col] = ch;
+      }
     }
   }
   lastColonVisible = colonVisible;

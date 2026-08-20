@@ -1,6 +1,7 @@
 #include "web_portal.h"
 #include "webpage_html.h"
 #include "wifi_manager.h"
+#include "sd_card.h"
 #include "config.h"
 #include <WiFi.h>
 
@@ -92,6 +93,45 @@ void handleResetWifi() {
   ESP.restart();
 }
 
+// ---- Video Face upload -------------------------------------------------
+// The browser does all the real work (decoding the source video, letting
+// the user crop/zoom/pick a length, extracting frames to raw RGB565, see
+// webpage_html.h's video section) and uploads one already-finished
+// container file: 4-byte "VID1" magic, little-endian uint16
+// width/height/frameCount/fps, then frameCount raw RGB565 frames back to
+// back. This endpoint only ever streams that file straight to the SD
+// card - see video_player.h for how it's read back for playback, which
+// happens independently of this web portal (or WiFi) still being up.
+const char *VIDEO_PATH = "/video/video.bin";
+
+// Called once the upload transfer completes (after handleVideoUploadData
+// has streamed every chunk to SD) - just reports success/failure.
+void handleVideoUpload() {
+  server->send(SdCard::isPresent() ? 200 : 400, "text/plain",
+               SdCard::isPresent() ? "OK" : "No SD card");
+}
+
+void handleVideoUploadData() {
+  HTTPUpload &upload = server->upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    SdCard::beginWrite(VIDEO_PATH);
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    SdCard::writeChunk(upload.buf, upload.currentSize);
+  } else if (upload.status == UPLOAD_FILE_END) {
+    SdCard::endWrite();
+  }
+}
+
+void handleVideoStatus() {
+  bool present = SdCard::exists(VIDEO_PATH);
+  server->send(200, "application/json", present ? "{\"present\":true}" : "{\"present\":false}");
+}
+
+void handleVideoDelete() {
+  SdCard::remove(VIDEO_PATH);
+  server->send(200, "text/plain", "OK");
+}
+
 void handleCaptivePing() {
   // Common captive-portal probe URLs (Android/iOS/Windows). Redirecting
   // them to "/" makes the setup page pop up automatically on most phones.
@@ -121,6 +161,9 @@ void begin(WebServer *serverPtr, DNSServer *dnsPtr, bool isCaptive) {
   server->on("/scan", HTTP_GET, handleScan);
   server->on("/save", HTTP_POST, handleSave);
   server->on("/resetwifi", HTTP_GET, handleResetWifi);
+  server->on("/video/upload", HTTP_POST, handleVideoUpload, handleVideoUploadData);
+  server->on("/video/status", HTTP_GET, handleVideoStatus);
+  server->on("/video/delete", HTTP_POST, handleVideoDelete);
 
   // Captive portal probe endpoints used by various OSes.
   server->on("/generate_204", HTTP_GET, handleCaptivePing);       // Android

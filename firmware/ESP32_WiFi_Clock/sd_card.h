@@ -42,4 +42,26 @@ String readTextFile(const String &path);
 // it's shorter than expected. Used for Custom Face backgrounds.
 bool readImage(const String &path, uint16_t *out, int width, int height);
 
+// Reads up to len raw bytes starting at byte offset within path into out.
+// Returns the number of bytes actually read (0 if there's no card, the
+// file's missing, or offset is past its end). Used for Video Face, which
+// seeks to a specific frame's byte offset rather than reading sequentially.
+size_t readAt(const String &path, size_t offset, uint8_t *out, size_t len);
+
+bool exists(const String &path);
+
+// Deletes a file. Returns true if it no longer exists afterwards (this
+// includes the case where it never existed).
+bool remove(const String &path);
+
+// Streaming write for large uploads (e.g. Video Face's saved video) that
+// don't fit in RAM as a single buffer: beginWrite() opens/truncates path
+// (creating one level of parent directory if needed - SD.mkdir() isn't
+// recursive, and every caller here only ever nests one level deep),
+// writeChunk() appends, endWrite() closes. Only one write can be open at
+// a time; a second beginWrite() before endWrite() fails.
+bool beginWrite(const String &path);
+bool writeChunk(const uint8_t *data, size_t len);
+void endWrite();
+
 } // namespace SdCard

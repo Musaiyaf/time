@@ -9,6 +9,7 @@ namespace {
 // fighting over shared bus state.
 SPIClass sdSPI(HSPI);
 bool present = false;
+File writeFile;
 
 // entry.name() has returned either a full path or just a base name
 // depending on core version - normalize to just the base name so paths
@@ -69,6 +70,54 @@ bool readImage(const String &path, uint16_t *out, int width, int height) {
   size_t got = f.read(reinterpret_cast<uint8_t *>(out), need);
   f.close();
   return got == need;
+}
+
+size_t readAt(const String &path, size_t offset, uint8_t *out, size_t len) {
+  if (!present) return 0;
+  File f = SD.open(path);
+  if (!f) return 0;
+  if (!f.seek(offset)) {
+    f.close();
+    return 0;
+  }
+  size_t got = f.read(out, len);
+  f.close();
+  return got;
+}
+
+bool exists(const String &path) {
+  if (!present) return false;
+  return SD.exists(path);
+}
+
+bool remove(const String &path) {
+  if (!present) return true; // no card - nothing to remove, not an error
+  if (!SD.exists(path)) return true;
+  return SD.remove(path);
+}
+
+bool beginWrite(const String &path) {
+  if (!present || writeFile) return false;
+  int slash = path.lastIndexOf('/');
+  if (slash > 0) {
+    String dir = path.substring(0, slash);
+    if (!SD.exists(dir)) SD.mkdir(dir);
+  }
+  // FILE_WRITE's truncate-vs-append behaviour has varied across core
+  // versions - remove any existing file first so this is always a clean
+  // truncate regardless.
+  if (SD.exists(path)) SD.remove(path);
+  writeFile = SD.open(path, FILE_WRITE);
+  return (bool)writeFile;
+}
+
+bool writeChunk(const uint8_t *data, size_t len) {
+  if (!writeFile) return false;
+  return writeFile.write(data, len) == len;
+}
+
+void endWrite() {
+  if (writeFile) writeFile.close();
 }
 
 } // namespace SdCard

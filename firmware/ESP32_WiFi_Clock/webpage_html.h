@@ -66,6 +66,12 @@ const char PAGE_TEMPLATE[] PROGMEM = R"rawliteral(
   .badge{flex:1;text-align:center;padding:8px 4px;border-radius:8px;font-size:.75rem;
         font-weight:700;color:#fff}
   .footer{text-align:center;color:var(--muted);font-size:.75rem;margin-top:18px}
+  input[type=range]{width:100%}
+  #vidCropWrap{position:relative;margin:10px 0;border-radius:8px;background:#000;
+       overflow:hidden;touch-action:none}
+  #vidPreview{display:block;width:100%}
+  #vidCropBox{position:absolute;border:2px solid #fff;cursor:move;
+       box-shadow:0 0 0 9999px rgba(0,0,0,.55)}
 </style>
 </head>
 <body>
@@ -106,6 +112,27 @@ const char PAGE_TEMPLATE[] PROGMEM = R"rawliteral(
       <button type="submit">Save &amp; Connect</button>
     </form>
     <div id="status">%STATUS%</div>
+  </div>
+
+  <div class="card">
+    <h2>Video Wallpaper</h2>
+    <div class="sub" id="vidStatus" style="margin-bottom:10px">Checking...</div>
+    <input type="file" id="vidFile" accept="video/*" style="display:none" onchange="videoPicked(event)">
+    <button type="button" class="secondary" onclick="document.getElementById('vidFile').click()">Choose video</button>
+    <div id="vidEditor" style="display:none">
+      <div id="vidCropWrap">
+        <video id="vidPreview" muted loop playsinline></video>
+        <div id="vidCropBox"></div>
+      </div>
+      <label>Zoom</label>
+      <input type="range" id="vidZoom" min="1" max="4" step="0.05" value="1" oninput="vidUpdateCrop()">
+      <label>Length: <span id="vidLenLabel">3s</span></label>
+      <input type="range" id="vidLen" min="1" max="8" step="1" value="3" oninput="vidLenChanged()">
+      <div class="sub" id="vidEstimate"></div>
+      <button type="button" onclick="videoSave()">Save to clock</button>
+      <div class="sub" id="vidProgress"></div>
+    </div>
+    <button class="secondary danger" id="vidDeleteBtn" style="display:none" onclick="videoDelete()">Remove saved video</button>
   </div>
 
   <button class="secondary danger" onclick="resetWifi()">Forget saved WiFi</button>
@@ -209,6 +236,176 @@ function resetWifi(){
 }
 scan();
 tzInit();
+
+// ---- Video Wallpaper -----------------------------------------------
+// Decoding/resizing happens entirely here in the browser, using the
+// video's own <video>/<canvas> decoder - the ESP32 never sees the
+// original video file, only the already-cropped/resized raw RGB565
+// frames this builds and uploads. Output is fixed at 320x140 (the
+// clock's digit area, below the status badges) so the firmware side
+// never has to scale anything - it just blits whatever's here.
+var VID_OUT_W = 320, VID_OUT_H = 140, VID_FPS = 5;
+var vidPanX = 0.5, vidPanY = 0.5, vidDragging = false, vidDragStart = null;
+
+function clamp01(v){ return Math.max(0, Math.min(1, v)); }
+
+function videoPicked(e){
+  var f = e.target.files[0];
+  if (!f) return;
+  var el = document.getElementById('vidPreview');
+  el.src = URL.createObjectURL(f);
+  el.onloadedmetadata = function(){
+    document.getElementById('vidEditor').style.display = 'block';
+    vidPanX = 0.5; vidPanY = 0.5;
+    document.getElementById('vidZoom').value = 1;
+    vidLenChanged();
+    vidUpdateCrop();
+    el.play();
+  };
+}
+
+// Crop rectangle in source-video pixel coordinates: the largest region
+// matching the 320:140 output aspect ratio that fits inside the video,
+// shrunk by the zoom slider and repositioned by drag-to-pan.
+function vidComputeCrop(){
+  var el = document.getElementById('vidPreview');
+  var vw = el.videoWidth, vh = el.videoHeight;
+  if (!vw || !vh) return null;
+  var aspect = VID_OUT_W / VID_OUT_H;
+  var baseW, baseH;
+  if (vw / vh > aspect) { baseH = vh; baseW = vh * aspect; }
+  else { baseW = vw; baseH = vw / aspect; }
+  var zoom = parseFloat(document.getElementById('vidZoom').value) || 1;
+  var cw = baseW / zoom, ch = baseH / zoom;
+  var maxX = Math.max(0, vw - cw), maxY = Math.max(0, vh - ch);
+  return {sx: vidPanX * maxX, sy: vidPanY * maxY, sw: cw, sh: ch, vw: vw, vh: vh};
+}
+
+function vidUpdateCrop(){
+  var crop = vidComputeCrop();
+  var box = document.getElementById('vidCropBox');
+  if (!crop) { box.style.display = 'none'; return; }
+  var el = document.getElementById('vidPreview');
+  var scale = el.clientWidth / crop.vw;
+  box.style.display = 'block';
+  box.style.left = (crop.sx * scale) + 'px';
+  box.style.top = (crop.sy * scale) + 'px';
+  box.style.width = (crop.sw * scale) + 'px';
+  box.style.height = (crop.sh * scale) + 'px';
+}
+
+(function(){
+  var box = document.getElementById('vidCropBox');
+  box.addEventListener('pointerdown', function(e){
+    vidDragging = true;
+    vidDragStart = {x: e.clientX, y: e.clientY, panX: vidPanX, panY: vidPanY};
+    box.setPointerCapture(e.pointerId);
+  });
+  box.addEventListener('pointermove', function(e){
+    if (!vidDragging) return;
+    var crop = vidComputeCrop();
+    if (!crop) return;
+    var el = document.getElementById('vidPreview');
+    var scale = el.clientWidth / crop.vw;
+    var maxX = Math.max(0, crop.vw - crop.sw), maxY = Math.max(0, crop.vh - crop.sh);
+    var dxSrc = (e.clientX - vidDragStart.x) / scale;
+    var dySrc = (e.clientY - vidDragStart.y) / scale;
+    vidPanX = maxX > 0 ? clamp01(vidDragStart.panX + dxSrc / maxX) : 0.5;
+    vidPanY = maxY > 0 ? clamp01(vidDragStart.panY + dySrc / maxY) : 0.5;
+    vidUpdateCrop();
+  });
+  box.addEventListener('pointerup', function(){ vidDragging = false; });
+})();
+
+function vidLenChanged(){
+  var lenSec = parseInt(document.getElementById('vidLen').value, 10);
+  document.getElementById('vidLenLabel').textContent = lenSec + 's';
+  var frames = VID_FPS * lenSec;
+  var bytes = 12 + frames * VID_OUT_W * VID_OUT_H * 2;
+  document.getElementById('vidEstimate').textContent =
+      frames + ' frames, ~' + (bytes / 1024 / 1024).toFixed(1) + ' MB to upload';
+}
+
+function vidSeek(el, t){
+  return new Promise(function(resolve){
+    function onSeeked(){ el.removeEventListener('seeked', onSeeked); resolve(); }
+    el.addEventListener('seeked', onSeeked);
+    el.currentTime = t;
+  });
+}
+
+function writeU16LE(arr, i, v){ arr[i] = v & 0xFF; arr[i + 1] = (v >> 8) & 0xFF; }
+
+async function videoSave(){
+  var el = document.getElementById('vidPreview');
+  var crop = vidComputeCrop();
+  if (!crop) { alert('Video not loaded yet'); return; }
+
+  var lenSec = parseInt(document.getElementById('vidLen').value, 10);
+  var frameCount = VID_FPS * lenSec;
+  var prog = document.getElementById('vidProgress');
+
+  var canvas = document.createElement('canvas');
+  canvas.width = VID_OUT_W; canvas.height = VID_OUT_H;
+  var ctx = canvas.getContext('2d', {willReadFrequently: true});
+
+  var buf = new Uint8Array(12 + frameCount * VID_OUT_W * VID_OUT_H * 2);
+  buf.set([0x56, 0x49, 0x44, 0x31], 0); // "VID1"
+  writeU16LE(buf, 4, VID_OUT_W);
+  writeU16LE(buf, 6, VID_OUT_H);
+  writeU16LE(buf, 8, frameCount);
+  writeU16LE(buf, 10, VID_FPS);
+
+  el.pause();
+  var offset = 12;
+  var maxT = Math.max(0, (el.duration || lenSec) - 0.05);
+  for (var i = 0; i < frameCount; i++) {
+    await vidSeek(el, Math.min(i / VID_FPS, maxT));
+    ctx.drawImage(el, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, VID_OUT_W, VID_OUT_H);
+    var data = ctx.getImageData(0, 0, VID_OUT_W, VID_OUT_H).data;
+    for (var p = 0; p < data.length; p += 4) {
+      var v = ((data[p] >> 3) << 11) | ((data[p + 1] >> 2) << 5) | (data[p + 2] >> 3);
+      buf[offset++] = v & 0xFF;
+      buf[offset++] = (v >> 8) & 0xFF;
+    }
+    prog.textContent = 'Extracting frame ' + (i + 1) + '/' + frameCount + '...';
+  }
+  el.loop = true;
+  el.play();
+
+  prog.textContent = 'Uploading...';
+  var fd = new FormData();
+  fd.append('video', new Blob([buf], {type: 'application/octet-stream'}), 'video.bin');
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', '/video/upload');
+  xhr.upload.onprogress = function(e){
+    if (e.lengthComputable) prog.textContent = 'Uploading... ' + Math.round(100 * e.loaded / e.total) + '%';
+  };
+  xhr.onload = function(){
+    prog.textContent = xhr.status === 200
+        ? 'Saved! Switch to the Video face on the clock to see it.'
+        : 'Upload failed (' + xhr.status + ').';
+    vidRefreshStatus();
+  };
+  xhr.onerror = function(){ prog.textContent = 'Upload failed - check the connection and try again.'; };
+  xhr.send(fd);
+}
+
+function videoDelete(){
+  if (!confirm('Remove the saved video from the clock?')) return;
+  fetch('/video/delete', {method: 'POST'}).then(vidRefreshStatus);
+}
+
+function vidRefreshStatus(){
+  fetch('/video/status').then(function(r){ return r.json(); }).then(function(s){
+    document.getElementById('vidStatus').textContent =
+        s.present ? 'A video is currently saved on the clock.' : 'No video saved yet.';
+    document.getElementById('vidDeleteBtn').style.display = s.present ? 'block' : 'none';
+  }).catch(function(){
+    document.getElementById('vidStatus').textContent = '';
+  });
+}
+vidRefreshStatus();
 </script>
 </body>
 </html>
