@@ -83,6 +83,16 @@ void draw(TFT_eSPI &tft, int x, int y, int w, int h) {
   size_t offset = HEADER_SIZE + (size_t)curFrame * frameBytes;
   size_t got = SdCard::readAt(VIDEO_PATH, offset, reinterpret_cast<uint8_t *>(frameBuf), frameBytes);
   if (got == frameBytes) {
+    // Whatever last drew on this same tft (e.g. showBootMessage()'s smooth-
+    // font boot text, before the clock face ever starts) can leave its
+    // swap-bytes state set - TFT_eSPI's smooth-font rendering is known to
+    // do this (see clock_display.cpp's pushCustomBgSlice() comment, which
+    // hit the same symptom: a byte-swapped RGB565 value doesn't just look
+    // miscoloured, its 5/6/5 bit fields land on unrelated channels, which
+    // reads as scattered speckle/blocks rather than a uniformly wrong
+    // colour). Reset it explicitly before every push rather than assuming
+    // whatever ran before left it in the state pushImage() expects.
+    tft.setSwapBytes(false);
     tft.pushImage(x, y, w, h, frameBuf);
   }
 
