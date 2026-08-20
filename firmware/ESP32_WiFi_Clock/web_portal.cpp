@@ -48,6 +48,13 @@ void handleRoot() {
   page.replace("%NTP1%", ntp1);
   page.replace("%NTP2%", ntp2);
 
+  // Without this, a browser is free to keep serving an old cached copy of
+  // this page indefinitely - happened in practice with the Video
+  // Wallpaper card: after its extraction size changed (140 -> 170 tall),
+  // a phone that had visited before kept running the *old* cached JS,
+  // silently re-uploading videos at the old size forever with no error,
+  // no matter how many times firmware-side fixes were reflashed.
+  server->sendHeader("Cache-Control", "no-store");
   server->send(200, "text/html", page);
 }
 
