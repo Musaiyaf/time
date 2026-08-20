@@ -439,6 +439,14 @@ void ensureDigitFont() {
 // slice out of the middle of a wider (SCR_W) source buffer, not a
 // contiguous w*h block on its own.
 void pushCustomBgSlice(TFT_eSprite &spr, int x, int w) {
+  // pushImage() expects these as plain (non-byte-swapped) RGB565 values,
+  // matching how customBgBuf was filled - but loadFont()'s smooth-font
+  // glyph rendering (used for this face's digits) can leave a sprite's
+  // swap-bytes flag set to true from drawing the previous character, which
+  // would otherwise scramble this raw pixel data into "TV static" colours
+  // (a byte-swapped RGB565 value isn't just the wrong colour - its 5/6/5
+  // bit fields land on entirely different channels).
+  spr.setSwapBytes(false);
   for (int row = 0; row < CLOCK_H; row++) {
     spr.pushImage(0, row, w, 1, customBgBuf + row * SCR_W + x);
   }
