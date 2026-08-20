@@ -2,6 +2,7 @@
 #include "config.h"
 #include "sd_card.h"
 #include <TFT_eSPI.h>
+#include <math.h>
 #include "FredokaDigits87.h"
 #include "BebasDigits123.h"
 // TFT_eSPI.h (with LOAD_GFXFF enabled) already pulls in every Adafruit GFX
@@ -162,10 +163,11 @@ int colX(int col) {
 enum ClockFaceId {
   FACE_RAINBOW_GRID = 0,
   FACE_SEVEN_SEG = 1,
-  FACE_GOLD = 2,
-  FACE_SPECTRUM = 3,
-  FACE_CUSTOM = 4,
-  FACE_COUNT = 5
+  FACE_HONEYCOMB = 2,
+  FACE_GOLD = 3,
+  FACE_SPECTRUM = 4,
+  FACE_CUSTOM = 5,
+  FACE_COUNT = 6
 };
 int currentFace = FACE_RAINBOW_GRID;
 
@@ -262,7 +264,7 @@ void ensureCustomFaceLoaded() {
 }
 
 const BadgeTheme &badgeTheme() {
-  if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
+  if (currentFace == FACE_SEVEN_SEG || currentFace == FACE_HONEYCOMB) return THEME_LED;
   if (currentFace == FACE_GOLD) return THEME_GOLD;
   if (currentFace == FACE_SPECTRUM) return THEME_SPECTRUM;
   if (currentFace == FACE_CUSTOM) {
@@ -423,10 +425,11 @@ void drawLedSegment(int x, int y, int w, int h, uint16_t color) {
   if (r > 0) carveRoundCorners(digitSpr, x, y, w, h, r, COL_BG);
 }
 
-void drawSevenSegDigitCell(int col, char ch) {
-  int x = colX(col);
-  digitSpr.fillSprite(COL_BG);
-
+// Draws the 7-segment digit shape into digitSpr at its usual position -
+// just the segments, no background fill/push, so the honeycomb face below
+// can reuse this on top of a different (textured) background instead of
+// duplicating the segment layout math.
+void drawSevenSegShape(uint16_t onColor, uint16_t offColor, char ch) {
   int W = CELL_DIGIT_W - 2 * LED_MARGIN;
   int H = CLOCK_H - 2 * LED_MARGIN;
   int T = LED_THICK;
@@ -444,9 +447,69 @@ void drawSevenSegDigitCell(int col, char ch) {
   int digit = ch - '0';
   for (int s = 0; s < 7; s++) {
     bool on = (digit >= 0 && digit <= 9) && SEVEN_SEG[digit][s];
-    drawLedSegment(x0 + sx[s], y0 + sy[s], sw[s], sh[s], on ? COL_LED_ON : COL_LED_OFF);
+    drawLedSegment(x0 + sx[s], y0 + sy[s], sw[s], sh[s], on ? onColor : offColor);
   }
+}
 
+void drawSevenSegDigitCell(int col, char ch) {
+  int x = colX(col);
+  digitSpr.fillSprite(COL_BG);
+  drawSevenSegShape(COL_LED_ON, COL_LED_OFF, ch);
+  digitSpr.pushSprite(x, CLOCK_TOP);
+}
+
+// ---- Honeycomb face -------------------------------------------------------
+// The original reference photo this whole project is styled after (see
+// the "reference photo" note in the README) - warm orange 7-segment
+// digits over a honeycomb mesh texture, rather than the rainbow grid
+// approximation used elsewhere. Reuses drawSevenSegShape() above, just
+// recoloured, drawn over a procedural hex-line background instead of
+// flat black.
+const uint16_t COL_HC_ON   = tft.color565(255, 150, 20);  // bright orange, lit
+const uint16_t COL_HC_OFF  = tft.color565(45, 24, 6);      // dim orange, unlit
+const uint16_t COL_HC_MESH = tft.color565(42, 42, 46);     // faint grey hex lines
+const float HEX_SIZE = 15.0f; // centre-to-vertex radius of each hex cell
+
+// Draws flat-top hexagon outlines into spr, using globalX (the cell's
+// actual screen x-position) to offset the pattern - so adjacent digit/
+// colon cells' hex lines line up seamlessly into one continuous mesh
+// across the whole clock face, the same trick pushCustomBgSlice() uses
+// for Custom Face backgrounds, just generated on the fly instead of
+// read from a buffer.
+void drawHexMesh(TFT_eSprite &spr, int w, int h, int globalX) {
+  float hexH = sqrtf(3.0f) * HEX_SIZE;
+  float colStep = HEX_SIZE * 1.5f;
+
+  int firstCol = (int)floorf((globalX - HEX_SIZE * 2) / colStep) - 1;
+  int lastCol = (int)ceilf((globalX + w + HEX_SIZE * 2) / colStep) + 1;
+
+  for (int col = firstCol; col <= lastCol; col++) {
+    float cx = col * colStep;
+    float rowOffset = (col % 2 == 0) ? 0.0f : hexH / 2.0f;
+    int firstRow = (int)floorf(-rowOffset / hexH) - 1;
+    int lastRow = (int)ceilf((h - rowOffset) / hexH) + 1;
+    for (int row = firstRow; row <= lastRow; row++) {
+      float cy = row * hexH + rowOffset;
+      float vx[6], vy[6];
+      for (int i = 0; i < 6; i++) {
+        float angle = (float)i * 60.0f * (float)PI / 180.0f;
+        vx[i] = cx + HEX_SIZE * cosf(angle);
+        vy[i] = cy + HEX_SIZE * sinf(angle);
+      }
+      for (int i = 0; i < 6; i++) {
+        int x1 = (int)lroundf(vx[i]) - globalX, y1 = (int)lroundf(vy[i]);
+        int x2 = (int)lroundf(vx[(i + 1) % 6]) - globalX, y2 = (int)lroundf(vy[(i + 1) % 6]);
+        spr.drawLine(x1, y1, x2, y2, COL_HC_MESH);
+      }
+    }
+  }
+}
+
+void drawHoneycombDigitCell(int col, char ch) {
+  int x = colX(col);
+  digitSpr.fillSprite(COL_BG);
+  drawHexMesh(digitSpr, CELL_DIGIT_W, CLOCK_H, x);
+  drawSevenSegShape(COL_HC_ON, COL_HC_OFF, ch);
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
@@ -543,6 +606,8 @@ void drawCustomDigitCell(int col, char ch) {
 void drawDigitCell(int col, char ch) {
   if (currentFace == FACE_SEVEN_SEG) {
     drawSevenSegDigitCell(col, ch);
+  } else if (currentFace == FACE_HONEYCOMB) {
+    drawHoneycombDigitCell(col, ch);
   } else if (currentFace == FACE_GOLD) {
     drawGoldDigitCell(col, ch);
   } else if (currentFace == FACE_SPECTRUM) {
@@ -557,19 +622,21 @@ void drawDigitCell(int col, char ch) {
 void drawColonCell(int col, bool visible) {
   int x = colX(col);
   bool customBg = currentFace == FACE_CUSTOM && customBgBuf && customCfg.hasBackground;
+  colonSpr.fillSprite(COL_BG);
   if (customBg) {
     pushCustomBgSlice(colonSpr, x, CELL_COLON_W);
-  } else {
-    colonSpr.fillSprite(COL_BG);
+  } else if (currentFace == FACE_HONEYCOMB) {
+    drawHexMesh(colonSpr, CELL_COLON_W, CLOCK_H, x);
   }
   if (visible) {
     int cx = CELL_COLON_W / 2;
     int cy = CLOCK_H / 2;
     int r = max(3, CELL_COLON_W / 6);
     int gap = CLOCK_H / 6;
-    uint16_t dotColor = (currentFace == FACE_CUSTOM) ? customCfg.digitColor
-                       : (currentFace == FACE_GOLD)   ? COL_GOLD
-                                                       : COL_COLON;
+    uint16_t dotColor = (currentFace == FACE_CUSTOM)    ? customCfg.digitColor
+                       : (currentFace == FACE_GOLD)      ? COL_GOLD
+                       : (currentFace == FACE_HONEYCOMB) ? COL_HC_ON
+                                                          : COL_COLON;
     colonSpr.fillSmoothCircle(cx, cy - gap, r, dotColor, COL_BG);
     colonSpr.fillSmoothCircle(cx, cy + gap, r, dotColor, COL_BG);
   }

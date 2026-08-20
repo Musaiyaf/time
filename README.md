@@ -204,18 +204,22 @@ your router's client list instead). Reflash, hold OK for 3s at power-up, or
 use the on-device WiFi menu item to reconnect to a different network.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between five clock faces: the rainbow grid face; a retro LED face
+cycle between six clock faces: the rainbow grid face; a retro LED face
 (classic digital-alarm-clock style 7-segment digits, bright red on black,
-with a faint ghost of the unlit segments); a gold face (tall, condensed
-Bebas Neue digits filled a rich metallic gold, with a bright top-lit gloss
-- the same highlight effect the rainbow face uses, just applied to a solid
-gold fill instead of a different colour per digit); a spectrum face (the
-same Bebas Neue digits and gloss, but each digit *value* 0-9 has its own
-fixed colour - every "1" is silver, every "9" is pink, and so on,
-regardless of position - so the badge row gets a matching one-colour-per-badge
-palette instead of one flat accent); and [**Custom**](#custom-face), which
-shows your own background image and colours from an SD card. The status
-bar re-skins to match whichever face is active. The choice isn't saved
+with a faint ghost of the unlit segments); a honeycomb face (the same
+7-segment digits, recoloured a warm orange, over a procedurally-drawn hex
+mesh background - the closest match to the original reference photo this
+whole project is styled after, see the note near the top of this file); a
+gold face (tall, condensed Bebas Neue digits filled a rich metallic gold,
+with a bright top-lit gloss - the same highlight effect the rainbow face
+uses, just applied to a solid gold fill instead of a different colour per
+digit); a spectrum face (the same Bebas Neue digits and gloss, but each
+digit *value* 0-9 has its own fixed colour - every "1" is silver, every
+"9" is pink, and so on, regardless of position - so the badge row gets a
+matching one-colour-per-badge palette instead of one flat accent); and
+[**Custom**](#custom-face), which shows your own background image and
+colours from an SD card. The status bar re-skins to match whichever face
+is active. The choice isn't saved
 across a power cycle - it always starts on the rainbow grid face.
 
 ### Custom Face
