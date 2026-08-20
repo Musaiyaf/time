@@ -2,6 +2,7 @@
 #include "config.h"
 #include "sd_card.h"
 #include "video_player.h"
+#include "PhotoDigits.h"
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
 #include "BebasDigits123.h"
@@ -25,6 +26,7 @@ TFT_eSprite mdaySpr(&tft);
 TFT_eSprite weekSpr(&tft);
 TFT_eSprite doySpr(&tft);
 TFT_eSprite wifiSpr(&tft);
+TFT_eSprite photoDigitSpr(&tft); // Photo face only - see drawPhotoRow()
 
 // ---- Theme colours (approximating the reference photo) -------------
 const uint16_t COL_BG        = TFT_BLACK;
@@ -83,27 +85,17 @@ const BadgeTheme THEME_LED = {
   tft.color565(28, 8, 6),   tft.color565(255, 70, 45),    // wifi
 };
 
-// Gold face: near-black badges with warm gold text, matching the metallic
-// gold digits' own colour.
-const BadgeTheme THEME_GOLD = {
-  tft.color565(20, 16, 8),  tft.color565(205, 165, 70),   // year
-  tft.color565(24, 18, 8),  tft.color565(205, 165, 70),   // month
-  tft.color565(14, 11, 5),  tft.color565(150, 118, 50),   // day
-  tft.color565(20, 16, 8),  tft.color565(205, 165, 70),   // week
-  tft.color565(20, 16, 8),  tft.color565(205, 165, 70),   // day-of-year
-  tft.color565(16, 13, 6),  tft.color565(205, 165, 70),   // wifi
-};
-
-// Spectrum face: near-black badges, but each one gets its own vivid accent
-// (rather than one flat colour like Gold/Custom) to echo the digits' own
-// one-colour-per-numeral palette below.
-const BadgeTheme THEME_SPECTRUM = {
-  tft.color565(10, 14, 20), tft.color565(60, 170, 255),   // year - blue
-  tft.color565(14, 10, 10), tft.color565(230, 60, 60),    // month - red
-  tft.color565(12, 12, 8),  tft.color565(220, 175, 60),   // day - gold
-  tft.color565(8, 14, 10),  tft.color565(60, 200, 90),    // week - green
-  tft.color565(12, 8, 16),  tft.color565(160, 90, 230),   // day-of-year - purple
-  tft.color565(8, 13, 13),  tft.color565(40, 200, 200),   // wifi - teal
+// Photo face: plain white badge boxes, matching the white background its
+// mixed-style digits need (several of them are themselves black/dark-
+// brown/dark-navy - see that face's own comment - so it isn't on the
+// usual black backdrop the other faces share).
+const BadgeTheme THEME_PHOTO = {
+  TFT_WHITE, TFT_BLACK,   // year
+  TFT_WHITE, TFT_BLACK,   // month
+  TFT_WHITE, TFT_BLACK,   // day
+  TFT_WHITE, TFT_BLACK,   // week
+  TFT_WHITE, TFT_BLACK,   // day-of-year
+  TFT_WHITE, TFT_BLACK,   // wifi
 };
 
 // ---- Layout -----------------------------------------------------------
@@ -163,32 +155,12 @@ int colX(int col) {
 enum ClockFaceId {
   FACE_RAINBOW_GRID = 0,
   FACE_SEVEN_SEG = 1,
-  FACE_GOLD = 2,
-  FACE_SPECTRUM = 3,
-  FACE_CUSTOM = 4,
-  FACE_VIDEO = 5,
-  FACE_COUNT = 6
+  FACE_CUSTOM = 2,
+  FACE_VIDEO = 3,
+  FACE_PHOTO = 4,
+  FACE_COUNT = 5
 };
 int currentFace = FACE_RAINBOW_GRID;
-
-// Rich gold, used for both the Gold face's digits and its colon dots.
-const uint16_t COL_GOLD = tft.color565(205, 165, 70);
-
-// Spectrum face: one fixed colour per digit VALUE (0-9) rather than per
-// cell position like the rainbow grid face, so e.g. every "1" anywhere on
-// the clock is always silver, every "9" always pink, and so on.
-const uint16_t COL_SPECTRUM_DIGIT[10] = {
-  tft.color565(40, 150, 255),  // 0 - blue
-  tft.color565(200, 205, 210), // 1 - silver
-  tft.color565(230, 45, 45),   // 2 - red
-  tft.color565(220, 175, 60),  // 3 - gold
-  tft.color565(120, 200, 45),  // 4 - green
-  tft.color565(155, 85, 225),  // 5 - purple
-  tft.color565(35, 195, 195),  // 6 - teal
-  tft.color565(230, 130, 30),  // 7 - orange
-  tft.color565(200, 205, 210), // 8 - silver
-  tft.color565(230, 55, 145),  // 9 - pink
-};
 
 // ---- Custom face: a user-supplied background image + colours, loaded
 // from an optional SD card (see sd_card.h). Entirely optional - with no
@@ -265,8 +237,7 @@ void ensureCustomFaceLoaded() {
 
 const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
-  if (currentFace == FACE_GOLD) return THEME_GOLD;
-  if (currentFace == FACE_SPECTRUM || currentFace == FACE_VIDEO) return THEME_SPECTRUM;
+  if (currentFace == FACE_PHOTO) return THEME_PHOTO;
   if (currentFace == FACE_CUSTOM) {
     static BadgeTheme customTheme;
     uint16_t bg = tft.color565(10, 10, 14);
@@ -452,57 +423,115 @@ void drawSevenSegDigitCell(int col, char ch) {
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
-// ---- Gold face -----------------------------------------------------------
-// Bold gold digits in BebasDigits123, with the same top-lit gloss the
-// rainbow face uses (applyDigitGloss() above) - brightening a solid gold
-// fill towards white at the top reads as a bright metallic highlight
-// glinting off the top of each numeral, the same trick a lot of real
-// gold/chrome text effects use.
-void drawGoldDigitCell(int col, char ch) {
-  int x = colX(col);
-  digitSpr.fillSprite(COL_BG);
-  digitSpr.setTextColor(COL_GOLD, COL_BG);
-  digitSpr.setTextDatum(MC_DATUM);
-  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
-  applyDigitGloss(digitSpr, CELL_DIGIT_W, CLOCK_H);
-  digitSpr.pushSprite(x, CLOCK_TOP);
-}
-
-// ---- Spectrum face ---------------------------------------------------
-// Also BebasDigits123, but each digit VALUE (not cell position) gets its
-// own fixed colour - COL_SPECTRUM_DIGIT above - plus the same top-lit
-// gloss Gold uses, for the same metallic-highlight look applied to a
-// rainbow of colours instead of one.
-void drawSpectrumDigitCell(int col, char ch) {
-  int x = colX(col);
-  digitSpr.fillSprite(COL_BG);
-  int digit = ch - '0';
-  uint16_t color = (digit >= 0 && digit <= 9) ? COL_SPECTRUM_DIGIT[digit] : TFT_WHITE;
-  digitSpr.setTextColor(color, COL_BG);
-  digitSpr.setTextDatum(MC_DATUM);
-  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
-  applyDigitGloss(digitSpr, CELL_DIGIT_W, CLOCK_H);
-  digitSpr.pushSprite(x, CLOCK_TOP);
-}
-
-// digitSpr holds one smooth font at a time (Fredoka for the rainbow face,
-// Bebas for the gold/spectrum faces - the LED face doesn't use a font at
-// all). Custom face picks between the two via customCfg.fontId (from
-// face.cfg - see ensureCustomFaceLoaded(), which must run before this so
-// the choice is already loaded by the time this checks it). Reloading a
-// font takes a moment to parse, so this only runs when the target face
-// actually needs a different font than what's currently loaded, rather
-// than on every digit redraw.
+// digitSpr holds one smooth font at a time (Fredoka for the rainbow face -
+// the LED face doesn't use a font at all). Custom face picks between it
+// and Bebas via customCfg.fontId (from face.cfg - see
+// ensureCustomFaceLoaded(), which must run before this so the choice is
+// already loaded by the time this checks it). Reloading a font takes a
+// moment to parse, so this only runs when the target face actually needs
+// a different font than what's currently loaded, rather than on every
+// digit redraw.
 void ensureDigitFont() {
   static int loadedFont = -1; // -1 = none yet, 0 = Fredoka, 1 = Bebas
-  int needed = currentFace == FACE_CUSTOM ? customCfg.fontId
-              : (currentFace == FACE_GOLD || currentFace == FACE_SPECTRUM) ? 1
-                                                                            : 0;
+  int needed = currentFace == FACE_CUSTOM ? customCfg.fontId : 0;
   if (needed == loadedFont) return;
   digitSpr.unloadFont();
   if (needed == 1) digitSpr.loadFont(BebasDigits123);
   else digitSpr.loadFont(FredokaDigits87);
   loadedFont = needed;
+}
+
+// ---- Photo face -----------------------------------------------------
+// Real photographed digits (background removed, RGB565), not a font - see
+// PhotoDigits.h. Each digit is its own distinct typeface/colour (a font-
+// sampler style, one look per value) rather than one consistent font, so
+// unlike every other face this can't reuse the fixed CELL_DIGIT_W column
+// grid: laid out edge to edge at their native aspect ratio, a full row
+// would run well past this 320px screen. Every digit is instead scaled
+// to a single fixed-width slot (photoSlotW, computed below from the
+// widest digit at PHOTO_H tall) so the whole row's width - and thus its
+// centred x position - never changes between redraws; without that, the
+// row would visibly jump sideways every second as narrower/wider digits
+// rotated through.
+//
+// Several of these digits are themselves black/dark-brown/dark-navy, so
+// unlike every other face (which draws on black) this one needs a light
+// background or half the digits would be near-invisible - runs on plain
+// white instead, with a matching white status bar (see THEME_PHOTO) and
+// dark colon dots.
+//
+// Shows all 6 digits (HH:MM:SS). At a fixed size that must never clip on
+// any possible time, that caps PHOTO_H well below the cell height (140px)
+// - it's bounded by the digits' own aspect ratio, not by how tight the
+// gaps/colon widths get (tried several combinations; none clear ~59px).
+const int PHOTO_GAP = 1;       // gap between adjacent digit/colon slots
+const int PHOTO_COLON_W = 7;
+// Widest native digit (8, 141x165) sets the worst-case aspect ratio
+// (~0.855). At H=57, 6 slots * ceil(0.855*57)=49 + 2*7 (colons) +
+// 7*1 (gaps) = 294 + 14 + 7 = 315px, safely under SCR_W (320).
+const int PHOTO_H = 57;
+const uint16_t COL_PHOTO_BG = TFT_WHITE;
+const uint16_t COL_PHOTO_COLON = TFT_BLACK;
+int photoSlotW = 0;       // widest scaled digit at PHOTO_H tall - set in begin()
+int photoRowStartX = 0;   // fixed row x so it never shifts between redraws
+int photoRowY = 0;
+
+// Scaled width of digit d (0-9) at a fixed height of PHOTO_H, preserving
+// its native aspect ratio.
+int photoScaledWidth(int d) {
+  const PhotoDigit &pd = PHOTO_DIGITS[d];
+  return (pd.w * PHOTO_H + pd.h - 1) / pd.h; // ceil
+}
+
+// Nearest-neighbour scales digit d from its native PROGMEM bitmap into
+// photoDigitSpr at (scaled width x PHOTO_H), background-filled first so
+// the unused slot width right of a narrower digit stays white.
+void drawPhotoDigitToSprite(int d) {
+  const PhotoDigit &pd = PHOTO_DIGITS[d];
+  int sw = photoScaledWidth(d);
+  photoDigitSpr.fillSprite(COL_PHOTO_BG);
+  for (int y = 0; y < PHOTO_H; y++) {
+    int sy = (y * pd.h) / PHOTO_H;
+    const uint16_t *row = pd.data + (size_t)sy * pd.w;
+    for (int x = 0; x < sw; x++) {
+      int sx = (x * pd.w) / sw;
+      photoDigitSpr.drawPixel(x, y, pgm_read_word(&row[sx]));
+    }
+  }
+}
+
+void drawPhotoColon(int x, bool visible) {
+  tft.fillRect(x, photoRowY, PHOTO_COLON_W, PHOTO_H, COL_PHOTO_BG);
+  if (visible) {
+    int cx = x + PHOTO_COLON_W / 2;
+    int cy = photoRowY + PHOTO_H / 2;
+    int r = max(3, PHOTO_COLON_W / 3);
+    int gap = PHOTO_H / 5;
+    tft.fillSmoothCircle(cx, cy - gap, r, COL_PHOTO_COLON, COL_PHOTO_BG);
+    tft.fillSmoothCircle(cx, cy + gap, r, COL_PHOTO_COLON, COL_PHOTO_BG);
+  }
+}
+
+// Redraws the whole HH:MM:SS row in one pass - unlike the other faces'
+// per-cell diffing, every slot's x position depends on the fixed
+// photoSlotW rather than that slot's own content, so there's nothing
+// meaningful to diff per-digit; this just runs whenever any digit or the
+// colon blink state changes (see update()).
+void drawPhotoRow(const char *buf, bool colonVisible) {
+  tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, COL_PHOTO_BG);
+  int x = photoRowStartX;
+  int idx = 0;
+  for (int slot = 0; slot < 8; slot++) {
+    if (slot == 2 || slot == 5) {
+      drawPhotoColon(x, colonVisible);
+      x += PHOTO_COLON_W + PHOTO_GAP;
+    } else {
+      int d = buf[idx++] - '0';
+      drawPhotoDigitToSprite(d);
+      photoDigitSpr.pushSprite(x, photoRowY);
+      x += photoSlotW + PHOTO_GAP;
+    }
+  }
 }
 
 // Copies a CELL_DIGIT_W (or CELL_COLON_W)-wide, CLOCK_H-tall slice of the
@@ -545,10 +574,6 @@ void drawCustomDigitCell(int col, char ch) {
 void drawDigitCell(int col, char ch) {
   if (currentFace == FACE_SEVEN_SEG) {
     drawSevenSegDigitCell(col, ch);
-  } else if (currentFace == FACE_GOLD) {
-    drawGoldDigitCell(col, ch);
-  } else if (currentFace == FACE_SPECTRUM) {
-    drawSpectrumDigitCell(col, ch);
   } else if (currentFace == FACE_CUSTOM) {
     drawCustomDigitCell(col, ch);
   } else {
@@ -569,9 +594,7 @@ void drawColonCell(int col, bool visible) {
     int cy = CLOCK_H / 2;
     int r = max(3, CELL_COLON_W / 6);
     int gap = CLOCK_H / 6;
-    uint16_t dotColor = (currentFace == FACE_CUSTOM) ? customCfg.digitColor
-                       : (currentFace == FACE_GOLD)   ? COL_GOLD
-                                                       : COL_COLON;
+    uint16_t dotColor = (currentFace == FACE_CUSTOM) ? customCfg.digitColor : COL_COLON;
     colonSpr.fillSmoothCircle(cx, cy - gap, r, dotColor, COL_BG);
     colonSpr.fillSmoothCircle(cx, cy + gap, r, dotColor, COL_BG);
   }
@@ -715,6 +738,7 @@ void begin() {
   weekSpr.setColorDepth(16);
   doySpr.setColorDepth(16);
   wifiSpr.setColorDepth(16);
+  photoDigitSpr.setColorDepth(16);
 
   digitSpr.createSprite(CELL_DIGIT_W, CLOCK_H);
   colonSpr.createSprite(CELL_COLON_W, CLOCK_H);
@@ -723,6 +747,12 @@ void begin() {
   weekSpr.createSprite(B_WEEK.w, TOPBAR_H);
   doySpr.createSprite(B_DOY.w, TOPBAR_H);
   wifiSpr.createSprite(B_WIFI.w, TOPBAR_H);
+
+  for (int d = 0; d <= 9; d++) photoSlotW = max(photoSlotW, photoScaledWidth(d));
+  photoDigitSpr.createSprite(photoSlotW, PHOTO_H);
+  int photoRowW = 6 * photoSlotW + 2 * PHOTO_COLON_W + 7 * PHOTO_GAP;
+  photoRowStartX = max(0, (SCR_W - photoRowW) / 2);
+  photoRowY = CLOCK_TOP + (CLOCK_H - PHOTO_H) / 2;
 
   ensureDigitFont(); // loads FredokaDigits87 for the default rainbow face
 
@@ -841,6 +871,20 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
       tft.drawString("No video saved", SCR_W / 2, SCR_H / 2 - 12);
       tft.drawString("Upload one from the web portal", SCR_W / 2, SCR_H / 2 + 12);
       tft.setFreeFont(nullptr);
+    }
+  } else if (currentFace == FACE_PHOTO) {
+    // Every slot's x position is fixed (see drawPhotoRow()), so there's
+    // nothing to diff per-digit - just redraw the whole row when anything
+    // in it changed. lastDigit[0..5] doubles as this face's HHMMSS cache
+    // (it's fully reset to 0 on every face switch, so it never carries
+    // stale values over from the other faces' cell-indexed usage of it).
+    bool changed = (colonVisible != lastColonVisible);
+    for (int i = 0; i < 6; i++) {
+      if (lastDigit[i] != buf[i]) changed = true;
+    }
+    if (changed) {
+      drawPhotoRow(buf, colonVisible);
+      for (int i = 0; i < 6; i++) lastDigit[i] = buf[i];
     }
   } else {
     const char *src = buf;

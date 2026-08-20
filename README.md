@@ -205,20 +205,18 @@ your router's client list instead). Reflash, hold OK for 3s at power-up, or
 use the on-device WiFi menu item to reconnect to a different network.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between six clock faces: the rainbow grid face; a retro LED face
+cycle between five clock faces: the rainbow grid face; a retro LED face
 (classic digital-alarm-clock style 7-segment digits, bright red on black,
-with a faint ghost of the unlit segments); a gold face (tall, condensed
-Bebas Neue digits filled a rich metallic gold, with a bright top-lit gloss
-- the same highlight effect the rainbow face uses, just applied to a solid
-gold fill instead of a different colour per digit); a spectrum face (the
-same Bebas Neue digits and gloss, but each digit *value* 0-9 has its own
-fixed colour - every "1" is silver, every "9" is pink, and so on,
-regardless of position - so the badge row gets a matching one-colour-per-badge
-palette instead of one flat accent); [**Custom**](#custom-face), which
-shows your own background image and colours from an SD card; and
-[**Video**](#video-wallpaper), which loops a short video clip. The status
-bar re-skins to match whichever face is active. The choice isn't saved
-across a power cycle - it always starts on the rainbow grid face.
+with a faint ghost of the unlit segments); [**Custom**](#custom-face),
+which shows your own background image and colours from an SD card;
+[**Video**](#video-wallpaper), which loops a short video clip fullscreen;
+and [**Photo**](#photo-face), a font-sampler face - each digit *value*
+0-9 is its own real photographed typeface and colour, not one consistent
+font - on a plain white background (several of the digits are themselves
+too dark to read on the black background every other face uses), with a
+matching white status bar. The status bar re-skins to match whichever face
+is active (or hides entirely on Video). The choice isn't saved across a
+power cycle - it always starts on the rainbow grid face.
 
 ### Custom Face
 
@@ -234,11 +232,10 @@ Put two files at `/faces/custom/` on the [SD card](#optional-sd-card-browser):
   font=bebas
   ```
   `font` is `bebas` (Bebas Neue - tall/condensed, default) or `fredoka`
-  (rounded) - the only two digit fonts actually compiled into the
-  firmware (also used by the gold and rainbow grid faces respectively).
-  A genuinely new third font would mean converting and compiling a new
-  glyph table into the firmware itself - not something either build tool
-  can do on its own.
+  (rounded, also used by the rainbow grid face) - the only two digit
+  fonts actually compiled into the firmware. A genuinely new third font
+  would mean converting and compiling a new glyph table into the
+  firmware itself - not something either build tool can do on its own.
 
 Two ways to build both from any image - same output either way:
 
@@ -284,6 +281,18 @@ browser tab, or the clock losing its WiFi connection, doesn't stop it. It
 keeps looping until you upload a different video or remove it (the same
 card's **Remove saved video** button). No SD card, or nothing uploaded
 yet, and the face just shows a short message instead of a blank screen.
+
+### Photo Face
+
+A font-sampler face built from real photographed digits rather than one
+consistent typeface: each digit *value* 0-9 keeps its own distinct font
+and colour (a serif "0", a bold "1", a script "2", and so on), unlike
+every other face where every digit shares the same font. Several of those
+digits are themselves black, dark brown, or dark navy - too close to
+invisible on the black background every other face uses - so Photo runs
+on a plain white background instead, with a matching white status bar
+(`THEME_PHOTO` in `clock_display.cpp`), rather than re-skinning to a dark
+badge palette like the other faces.
 
 **On-device main menu:** hold OK (not a tap - hold it down) on any clock
 face to open the top-level menu: three icon tiles, **SD Card**,
@@ -370,8 +379,8 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   TFT_eSPI "smooth fonts" embedded as byte arrays and loaded at runtime via
   `digitSpr.loadFont(...)` — no filesystem/SPIFFS needed. The rainbow face
   uses `FredokaDigits87.h` (digits 0-9 rendered from
-  [Fredoka](https://fonts.google.com/specimen/Fredoka) Bold at 87pt); the
-  gold face uses `BebasDigits123.h` (from
+  [Fredoka](https://fonts.google.com/specimen/Fredoka) Bold at 87pt);
+  Custom face can pick `BebasDigits123.h` instead (from
   [Bebas Neue](https://fonts.google.com/specimen/Bebas+Neue) at 123pt — a
   tall condensed face chosen deliberately for a very different look). Both
   are OFL-1.1 licensed. To use a different font for one of these two
@@ -388,8 +397,11 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   real vector font, but a self-service option that doesn't need a TTF at all.
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
   per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`,
-  `drawGoldDigitCell()`, `drawSpectrumDigitCell()`, `drawCustomDigitCell()`)
-  based on `currentFace`; `ClockDisplay::nextFace()` cycles through the
+  `drawCustomDigitCell()`) based on `currentFace` - Video and Photo bypass
+  this dispatcher entirely and redraw their own whole row each tick
+  (`VideoPlayer::draw()`, `drawPhotoRow()`), since neither fits the fixed
+  per-cell column grid the others share. `ClockDisplay::nextFace()` cycles
+  through the
   `ClockFaceId` enum (`FACE_COUNT` faces total) and is wired to a LEFT/RIGHT
   tap in `ESP32_WiFi_Clock.ino`. A face that wants its own smooth font
   (rather than plain geometry, like the LED face) needs to be added to
