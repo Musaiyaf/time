@@ -861,15 +861,24 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
     // draw() self-paces off the video's own saved fps and no-ops between
     // frames, so it's cheap to call on every tick regardless of this
     // face's usual per-second cadence.
-    if (VideoPlayer::isAvailable()) {
+    if (VideoPlayer::matchesSize(SCR_W, SCR_H)) {
       VideoPlayer::draw(tft, 0, 0, SCR_W, SCR_H);
     } else {
+      // Two different reasons nothing plays: no video saved at all, or one
+      // saved under an older firmware version's output size (draw() won't
+      // stretch/crop to fit) - tell them apart rather than leaving a blank
+      // screen with no explanation either way.
       tft.fillRect(0, 0, SCR_W, SCR_H, COL_BG);
       tft.setFreeFont(&FreeSansBold9pt7b);
       tft.setTextColor(TFT_WHITE, COL_BG);
       tft.setTextDatum(MC_DATUM);
-      tft.drawString("No video saved", SCR_W / 2, SCR_H / 2 - 12);
-      tft.drawString("Upload one from the web portal", SCR_W / 2, SCR_H / 2 + 12);
+      if (VideoPlayer::isAvailable()) {
+        tft.drawString("Saved video is the wrong size", SCR_W / 2, SCR_H / 2 - 12);
+        tft.drawString("Re-upload it from the web portal", SCR_W / 2, SCR_H / 2 + 12);
+      } else {
+        tft.drawString("No video saved", SCR_W / 2, SCR_H / 2 - 12);
+        tft.drawString("Upload one from the web portal", SCR_W / 2, SCR_H / 2 + 12);
+      }
       tft.setFreeFont(nullptr);
     }
   } else if (currentFace == FACE_PHOTO) {

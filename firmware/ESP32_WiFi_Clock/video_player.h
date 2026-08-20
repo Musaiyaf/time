@@ -18,7 +18,17 @@
 namespace VideoPlayer {
 
 // True if the SD card has a valid saved video (checked once, cached).
+// Doesn't guarantee draw() will actually show anything - see matchesSize().
 bool isAvailable();
+
+// True if there's a valid saved video AND its saved width/height equal
+// w x h - what draw() actually needs to display it. A video saved under
+// an older firmware version's output size (e.g. before Video Face went
+// fullscreen) has a valid header but a size draw() will silently refuse
+// to stretch/crop to fit, so isAvailable() alone doesn't mean draw() will
+// show anything - check this too to tell "no video" apart from "wrong
+// size, needs re-uploading" and show the right message for each.
+bool matchesSize(int w, int h);
 
 // Restarts playback from frame 0 on the next draw() call. Call this
 // whenever Video Face is (re)entered - see ClockDisplay::nextFace()/

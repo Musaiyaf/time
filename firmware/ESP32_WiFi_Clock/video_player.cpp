@@ -62,6 +62,11 @@ bool isAvailable() {
   return valid;
 }
 
+bool matchesSize(int w, int h) {
+  loadHeaderIfNeeded();
+  return valid && (int)vidW == w && (int)vidH == h;
+}
+
 void reset() {
   curFrame = 0;
   nextDue = 0; // due immediately on the next draw() call
