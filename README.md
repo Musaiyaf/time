@@ -115,6 +115,7 @@ firmware/ESP32_WiFi_Clock/
   rtc_backup.h/.cpp        - optional DS3231 backup RTC over I2C (raw Wire, no library)
   sd_card.h/.cpp           - optional SD card module (SD/SPI, ships with the ESP32 core)
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
+tools/make_custom_face.py    - builds a Custom Face package for the SD card
 .github/workflows/build-firmware.yml - CI build producing a flashable .bin
 ```
 
@@ -202,13 +203,41 @@ your router's client list instead). Reflash, hold OK for 3s at power-up, or
 use the on-device WiFi menu item to reconnect to a different network.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between three clock faces: the rainbow grid face; a retro LED face
+cycle between four clock faces: the rainbow grid face; a retro LED face
 (classic digital-alarm-clock style 7-segment digits, bright red on black,
-with a faint ghost of the unlit segments); and a big single-colour face
-(tall, condensed cyan digits in a different font - Bebas Neue rather than
-Fredoka - for maximum readability at a distance). The status bar re-skins
-to match whichever face is active. The choice isn't saved across a power
-cycle - it always starts on the rainbow grid face.
+with a faint ghost of the unlit segments); a big single-colour face (tall,
+condensed cyan digits in a different font - Bebas Neue rather than Fredoka
+- for maximum readability at a distance); and [**Custom**](#custom-face),
+which shows your own background image and colours from an SD card. The
+status bar re-skins to match whichever face is active. The choice isn't
+saved across a power cycle - it always starts on the rainbow grid face.
+
+### Custom Face
+
+Put two files at `/faces/custom/` on the [SD card](#optional-sd-card-browser):
+
+- `bg.bin` — a 320x140 background image (the clock digit area only - the
+  30px status bar at the top is always solid-colour badges, so an image
+  behind it would never show), raw RGB565 pixels, no header.
+- `face.cfg` — digit and accent colours, `key=value` text:
+  ```
+  digit_color=#00FFFF
+  accent_color=#FF4FA3
+  ```
+
+`tools/make_custom_face.py` builds both from any image:
+
+```
+pip install Pillow
+python3 tools/make_custom_face.py my_background.png --out out \
+    --digit-color "#00FFFF" --accent-color "#FF4FA3"
+```
+
+Then copy `out/bg.bin` and `out/face.cfg` onto the SD card as
+`/faces/custom/bg.bin` and `/faces/custom/face.cfg`, and cycle (LEFT/RIGHT)
+to the Custom face on the clock. No SD card, or nothing at that path, and
+it just falls back to plain white digits on black - never a blank or
+broken screen.
 
 **On-device main menu:** hold OK (not a tap - hold it down) on any clock
 face to open the top-level menu: three icon tiles, **SD Card**,

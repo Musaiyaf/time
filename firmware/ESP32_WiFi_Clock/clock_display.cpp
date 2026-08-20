@@ -1,5 +1,6 @@
 #include "clock_display.h"
 #include "config.h"
+#include "sd_card.h"
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
 #include "BebasDigits123.h"
@@ -146,12 +147,84 @@ int colX(int col) {
 // Tapping the BOOT button cycles between these (see ESP32_WiFi_Clock.ino).
 // The status badge row re-skins along with the big HH:MM:SS area (and
 // whether it gets the dashed grid lines) - see BadgeTheme above.
-enum ClockFaceId { FACE_RAINBOW_GRID = 0, FACE_SEVEN_SEG = 1, FACE_BIG_CYAN = 2, FACE_COUNT = 3 };
+enum ClockFaceId { FACE_RAINBOW_GRID = 0, FACE_SEVEN_SEG = 1, FACE_BIG_CYAN = 2, FACE_CUSTOM = 3, FACE_COUNT = 4 };
 int currentFace = FACE_RAINBOW_GRID;
+
+// ---- Custom face: a user-supplied background image + colours, loaded
+// from an optional SD card (see sd_card.h). Entirely optional - with no
+// card, or no /faces/custom/ on it, this face just falls back to plain
+// white-on-black digits, the same as if you'd never touched it.
+struct CustomFaceConfig {
+  uint16_t digitColor = TFT_WHITE;
+  uint16_t accentColor = TFT_CYAN;
+  bool hasBackground = false;
+};
+CustomFaceConfig customCfg;
+// SCR_W * CLOCK_H raw RGB565 pixels, allocated once (lazily, in PSRAM) the
+// first time the Custom face is actually opened. Kept for the rest of the
+// session, same "never freed/recreated" policy as the sprites above.
+uint16_t *customBgBuf = nullptr;
+
+uint16_t parseHexColor(const String &s, uint16_t fallback) {
+  if (s.length() != 7 || s[0] != '#') return fallback;
+  long v = strtol(s.c_str() + 1, nullptr, 16);
+  return tft.color565((v >> 16) & 0xFF, (v >> 8) & 0xFF, v & 0xFF);
+}
+
+// Parses a simple "key=value" text config (one per line, '#' comments,
+// blank lines ignored) - deliberately not JSON, to avoid pulling in a
+// parsing library for two colour fields.
+void loadCustomFaceConfig() {
+  customCfg = CustomFaceConfig();
+  String text = SdCard::readTextFile("/faces/custom/face.cfg");
+  int start = 0;
+  while (start < (int)text.length()) {
+    int nl = text.indexOf('\n', start);
+    if (nl < 0) nl = text.length();
+    String line = text.substring(start, nl);
+    line.trim();
+    start = nl + 1;
+    if (line.length() == 0 || line[0] == '#') continue;
+    int eq = line.indexOf('=');
+    if (eq < 0) continue;
+    String key = line.substring(0, eq);
+    String val = line.substring(eq + 1);
+    key.trim();
+    val.trim();
+    if (key == "digit_color") customCfg.digitColor = parseHexColor(val, customCfg.digitColor);
+    else if (key == "accent_color") customCfg.accentColor = parseHexColor(val, customCfg.accentColor);
+  }
+}
+
+// Loads the config + background the first time (and only the first time)
+// the Custom face is actually opened this session - see nextFace()/
+// prevFace(). Re-reading on every visit isn't worth the SD traffic for a
+// file that's expected to change rarely, if ever, while running.
+void ensureCustomFaceLoaded() {
+  if (currentFace != FACE_CUSTOM) return;
+  static bool attempted = false;
+  if (attempted) return;
+  attempted = true;
+
+  loadCustomFaceConfig();
+  if (!customBgBuf) {
+    customBgBuf = (uint16_t *)ps_malloc((size_t)SCR_W * CLOCK_H * sizeof(uint16_t));
+  }
+  if (customBgBuf) {
+    customCfg.hasBackground = SdCard::readImage("/faces/custom/bg.bin", customBgBuf, SCR_W, CLOCK_H);
+  }
+}
 
 const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
   if (currentFace == FACE_BIG_CYAN) return THEME_CYAN;
+  if (currentFace == FACE_CUSTOM) {
+    static BadgeTheme customTheme;
+    uint16_t bg = tft.color565(10, 10, 14);
+    customTheme = {bg, customCfg.accentColor, bg, customCfg.accentColor, bg, customCfg.accentColor,
+                   bg, customCfg.accentColor, bg, customCfg.accentColor, bg, customCfg.accentColor};
+    return customTheme;
+  }
   return THEME_RAINBOW;
 }
 
@@ -352,7 +425,7 @@ void drawBigCyanDigitCell(int col, char ch) {
 // loaded, rather than on every digit redraw.
 void ensureDigitFont() {
   static int loadedFont = -1; // -1 = none yet, 0 = Fredoka, 1 = Bebas
-  int needed = (currentFace == FACE_BIG_CYAN) ? 1 : 0;
+  int needed = (currentFace == FACE_BIG_CYAN || currentFace == FACE_CUSTOM) ? 1 : 0;
   if (needed == loadedFont) return;
   digitSpr.unloadFont();
   if (needed == 1) digitSpr.loadFont(BebasDigits123);
@@ -360,11 +433,41 @@ void ensureDigitFont() {
   loadedFont = needed;
 }
 
+// Copies a CELL_DIGIT_W (or CELL_COLON_W)-wide, CLOCK_H-tall slice of the
+// cached Custom Face background at column x into spr, row by row - a
+// straight pushImage(w,h,data) can't be used here since each row is a
+// slice out of the middle of a wider (SCR_W) source buffer, not a
+// contiguous w*h block on its own.
+void pushCustomBgSlice(TFT_eSprite &spr, int x, int w) {
+  for (int row = 0; row < CLOCK_H; row++) {
+    spr.pushImage(0, row, w, 1, customBgBuf + row * SCR_W + x);
+  }
+}
+
+// Custom face: the cached background (if any) shows through everywhere
+// except the glyph itself, via TFT_eSPI's transparent text mode
+// (setTextColor with a single colour argument only paints foreground
+// pixels, unlike the two-argument opaque form used by the other faces).
+void drawCustomDigitCell(int col, char ch) {
+  int x = colX(col);
+  if (customBgBuf && customCfg.hasBackground) {
+    pushCustomBgSlice(digitSpr, x, CELL_DIGIT_W);
+  } else {
+    digitSpr.fillSprite(COL_BG);
+  }
+  digitSpr.setTextColor(customCfg.digitColor);
+  digitSpr.setTextDatum(MC_DATUM);
+  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
+  digitSpr.pushSprite(x, CLOCK_TOP);
+}
+
 void drawDigitCell(int col, char ch) {
   if (currentFace == FACE_SEVEN_SEG) {
     drawSevenSegDigitCell(col, ch);
   } else if (currentFace == FACE_BIG_CYAN) {
     drawBigCyanDigitCell(col, ch);
+  } else if (currentFace == FACE_CUSTOM) {
+    drawCustomDigitCell(col, ch);
   } else {
     drawRainbowGridDigitCell(col, ch);
   }
@@ -372,14 +475,20 @@ void drawDigitCell(int col, char ch) {
 
 void drawColonCell(int col, bool visible) {
   int x = colX(col);
-  colonSpr.fillSprite(COL_BG);
+  bool customBg = currentFace == FACE_CUSTOM && customBgBuf && customCfg.hasBackground;
+  if (customBg) {
+    pushCustomBgSlice(colonSpr, x, CELL_COLON_W);
+  } else {
+    colonSpr.fillSprite(COL_BG);
+  }
   if (visible) {
     int cx = CELL_COLON_W / 2;
     int cy = CLOCK_H / 2;
     int r = max(3, CELL_COLON_W / 6);
     int gap = CLOCK_H / 6;
-    colonSpr.fillSmoothCircle(cx, cy - gap, r, COL_COLON, COL_BG);
-    colonSpr.fillSmoothCircle(cx, cy + gap, r, COL_COLON, COL_BG);
+    uint16_t dotColor = (currentFace == FACE_CUSTOM) ? customCfg.digitColor : COL_COLON;
+    colonSpr.fillSmoothCircle(cx, cy - gap, r, dotColor, COL_BG);
+    colonSpr.fillSmoothCircle(cx, cy + gap, r, dotColor, COL_BG);
   }
   colonSpr.pushSprite(x, CLOCK_TOP);
 }
@@ -542,12 +651,14 @@ void begin() {
 void nextFace() {
   currentFace = (currentFace + 1) % FACE_COUNT;
   ensureDigitFont();
+  ensureCustomFaceLoaded();
   gridDrawn = false;
 }
 
 void prevFace() {
   currentFace = (currentFace + FACE_COUNT - 1) % FACE_COUNT;
   ensureDigitFont();
+  ensureCustomFaceLoaded();
   gridDrawn = false;
 }
 

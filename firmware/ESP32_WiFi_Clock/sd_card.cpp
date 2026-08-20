@@ -52,4 +52,23 @@ int listDir(const String &path, Entry *out, int maxEntries) {
   return count;
 }
 
+String readTextFile(const String &path) {
+  if (!present) return "";
+  File f = SD.open(path);
+  if (!f) return "";
+  String s = f.readString();
+  f.close();
+  return s;
+}
+
+bool readImage(const String &path, uint16_t *out, int width, int height) {
+  if (!present) return false;
+  File f = SD.open(path);
+  if (!f) return false;
+  size_t need = (size_t)width * (size_t)height * sizeof(uint16_t);
+  size_t got = f.read(reinterpret_cast<uint8_t *>(out), need);
+  f.close();
+  return got == need;
+}
+
 } // namespace SdCard
