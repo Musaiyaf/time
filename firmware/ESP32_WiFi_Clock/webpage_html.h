@@ -244,15 +244,16 @@ tzInit();
 // frames this builds and uploads. Output is fixed at 320x170 (the
 // clock's full screen - Video Face hides the status bar for a fullscreen
 // look) so the firmware side never has to scale anything - it just blits
-// whatever's here. 15fps (was 5, then 10) - the main loop's render
-// throttle used to cap this at 5 regardless of what's saved here, and
-// re-opening the video file from scratch on every single frame read
-// (video_player.cpp) added further avoidable overhead on top of the
-// actual SD transfer; both are fixed now. 15 is untested on real
-// hardware past this point, unlike 10 - if it stutters/skips, that's the
-// actual ceiling for a 320x170 frame's SD-read-plus-SPI-push time on this
-// board, and dropping back to 10 is the fix.
-var VID_OUT_W = 320, VID_OUT_H = 170, VID_FPS = 15;
+// whatever's here. 10fps - was pushed to 15 briefly, but a single frame's
+// SD-read-plus-draw genuinely takes longer than the ~66ms a 15fps target
+// leaves between frames, so video played almost back-to-back with no gap
+// for the main loop to poll buttons in between (single-threaded - a
+// button check can only happen *between* draw() calls, never during
+// one), making LEFT/RIGHT feel dead while Video Face was showing. 10fps
+// (~100ms/frame) is the last confirmed-working value - don't raise this
+// without confirming face-switching still works at whatever it's raised
+// to, not just that the video itself looks smooth.
+var VID_OUT_W = 320, VID_OUT_H = 170, VID_FPS = 10;
 var vidPanX = 0.5, vidPanY = 0.5, vidDragging = false, vidDragStart = null;
 
 function clamp01(v){ return Math.max(0, Math.min(1, v)); }
