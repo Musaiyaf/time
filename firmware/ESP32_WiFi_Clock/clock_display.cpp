@@ -158,6 +158,13 @@ struct CustomFaceConfig {
   uint16_t digitColor = TFT_WHITE;
   uint16_t accentColor = TFT_CYAN;
   bool hasBackground = false;
+  // Which of the two fonts already built into this firmware to use for
+  // the digits - 0 = Fredoka (rounded), 1 = Bebas (tall/condensed,
+  // default, matches this face's original look). Adding a genuinely new
+  // third font means converting and compiling a new glyph table, which
+  // isn't something this config file can do - see the "font" key in
+  // tools/make_custom_face.py|.html for the two that exist.
+  int fontId = 1;
 };
 CustomFaceConfig customCfg;
 // SCR_W * CLOCK_H raw RGB565 pixels, allocated once (lazily, in PSRAM) the
@@ -193,6 +200,7 @@ void loadCustomFaceConfig() {
     val.trim();
     if (key == "digit_color") customCfg.digitColor = parseHexColor(val, customCfg.digitColor);
     else if (key == "accent_color") customCfg.accentColor = parseHexColor(val, customCfg.accentColor);
+    else if (key == "font") customCfg.fontId = (val == "fredoka") ? 0 : 1;
   }
 }
 
@@ -420,12 +428,17 @@ void drawBigCyanDigitCell(int col, char ch) {
 
 // digitSpr holds one smooth font at a time (Fredoka for the rainbow face,
 // Bebas for the big-cyan face - the LED face doesn't use a font at all).
-// Reloading a font takes a moment to parse, so this only runs when the
-// target face actually needs a different font than what's currently
-// loaded, rather than on every digit redraw.
+// Custom face picks between the two via customCfg.fontId (from face.cfg -
+// see ensureCustomFaceLoaded(), which must run before this so the choice
+// is already loaded by the time this checks it). Reloading a font takes a
+// moment to parse, so this only runs when the target face actually needs
+// a different font than what's currently loaded, rather than on every
+// digit redraw.
 void ensureDigitFont() {
   static int loadedFont = -1; // -1 = none yet, 0 = Fredoka, 1 = Bebas
-  int needed = (currentFace == FACE_BIG_CYAN || currentFace == FACE_CUSTOM) ? 1 : 0;
+  int needed = currentFace == FACE_CUSTOM  ? customCfg.fontId
+              : currentFace == FACE_BIG_CYAN ? 1
+                                              : 0;
   if (needed == loadedFont) return;
   digitSpr.unloadFont();
   if (needed == 1) digitSpr.loadFont(BebasDigits123);
@@ -659,15 +672,15 @@ void begin() {
 // waiting for a digit to actually change.
 void nextFace() {
   currentFace = (currentFace + 1) % FACE_COUNT;
+  ensureCustomFaceLoaded(); // must run before ensureDigitFont() - it's what sets customCfg.fontId
   ensureDigitFont();
-  ensureCustomFaceLoaded();
   gridDrawn = false;
 }
 
 void prevFace() {
   currentFace = (currentFace + FACE_COUNT - 1) % FACE_COUNT;
+  ensureCustomFaceLoaded(); // must run before ensureDigitFont() - it's what sets customCfg.fontId
   ensureDigitFont();
-  ensureCustomFaceLoaded();
   gridDrawn = false;
 }
 

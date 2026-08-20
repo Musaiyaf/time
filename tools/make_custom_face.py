@@ -7,12 +7,19 @@ Face reads at /faces/custom/ on the SD card:
   bg.bin    - the image, resized to 320x140 and converted to raw RGB565
               pixels (no header), which the firmware streams straight into
               a display buffer.
-  face.cfg  - a small text file with the digit/accent colours.
+  face.cfg  - a small text file with the digit/accent colours and font.
 
 Usage:
     pip install Pillow
     python3 make_custom_face.py background.png --out out_dir \
-        --digit-color "#00FFFF" --accent-color "#FF4FA3"
+        --digit-color "#00FFFF" --accent-color "#FF4FA3" --font bebas
+
+Fonts: only "bebas" (Bebas Neue - tall, condensed, the default) and
+"fredoka" (Fredoka - rounded) are available. These are the only two
+digit fonts actually compiled into the firmware (also used by the big
+single-colour and rainbow grid faces respectively) - a genuinely new
+third font would mean converting and compiling a new glyph table into
+the firmware itself, which this tool can't do.
 
 Then copy out_dir's contents onto the SD card as /faces/custom/
 (i.e. the card should end up with /faces/custom/bg.bin and
@@ -54,6 +61,8 @@ def main():
                          help="clock digit colour, #RRGGBB (default white)")
     parser.add_argument("--accent-color", type=parse_hex_color, default="#00E5FF",
                          help="status badge text colour, #RRGGBB (default cyan)")
+    parser.add_argument("--font", choices=["bebas", "fredoka"], default="bebas",
+                         help="digit font: bebas (tall/condensed, default) or fredoka (rounded)")
     args = parser.parse_args()
 
     try:
@@ -89,6 +98,7 @@ def main():
         "# Custom Face config - key=value, one per line, '#' comments.\n"
         f"digit_color={args.digit_color}\n"
         f"accent_color={args.accent_color}\n"
+        f"font={args.font}\n"
     )
     print(f"Wrote {cfg_path}")
 

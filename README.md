@@ -220,23 +220,31 @@ Put two files at `/faces/custom/` on the [SD card](#optional-sd-card-browser):
 - `bg.bin` — a 320x140 background image (the clock digit area only - the
   30px status bar at the top is always solid-colour badges, so an image
   behind it would never show), raw RGB565 pixels, no header.
-- `face.cfg` — digit and accent colours, `key=value` text:
+- `face.cfg` — digit/accent colours and digit font, `key=value` text:
   ```
   digit_color=#00FFFF
   accent_color=#FF4FA3
+  font=bebas
   ```
+  `font` is `bebas` (Bebas Neue - tall/condensed, default) or `fredoka`
+  (rounded) - the only two digit fonts actually compiled into the
+  firmware (also used by the big single-colour and rainbow grid faces
+  respectively). A genuinely new third font would mean converting and
+  compiling a new glyph table into the firmware itself - not something
+  either build tool can do on its own.
 
 Two ways to build both from any image - same output either way:
 
 - **`tools/make_custom_face.html`** — no install: open it directly in a
-  browser (double-click the file), pick an image and colours, see a live
-  preview, and click to download `bg.bin`/`face.cfg`. Runs entirely
-  client-side, nothing is uploaded anywhere.
+  browser (double-click the file), pick an image, font and colours, see a
+  live preview (using the real Bebas Neue/Fredoka fonts via Google Fonts),
+  and click to download `bg.bin`/`face.cfg`. Runs entirely client-side,
+  nothing is uploaded anywhere.
 - **`tools/make_custom_face.py`** — for scripting/automation:
   ```
   pip install Pillow
   python3 tools/make_custom_face.py my_background.png --out out \
-      --digit-color "#00FFFF" --accent-color "#FF4FA3"
+      --digit-color "#00FFFF" --accent-color "#FF4FA3" --font bebas
   ```
 
 Then copy `bg.bin` and `face.cfg` onto the SD card as
