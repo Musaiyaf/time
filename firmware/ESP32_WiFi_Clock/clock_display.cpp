@@ -82,17 +82,6 @@ const BadgeTheme THEME_LED = {
   tft.color565(28, 8, 6),   tft.color565(255, 70, 45),    // wifi
 };
 
-// Big single-colour face: dark blue-black backgrounds with bright cyan
-// text, matching the big cyan digits' single accent colour.
-const BadgeTheme THEME_CYAN = {
-  tft.color565(8, 24, 30),  tft.color565(0, 229, 255),    // year
-  tft.color565(10, 30, 36), tft.color565(0, 229, 255),    // month
-  tft.color565(5, 15, 19),  tft.color565(0, 140, 160),    // day
-  tft.color565(8, 24, 30),  tft.color565(0, 229, 255),    // week
-  tft.color565(8, 24, 30),  tft.color565(0, 229, 255),    // day-of-year
-  tft.color565(6, 19, 24),  tft.color565(0, 229, 255),    // wifi
-};
-
 // Gold face: near-black badges with warm gold text, matching the metallic
 // gold digits' own colour.
 const BadgeTheme THEME_GOLD = {
@@ -161,10 +150,9 @@ int colX(int col) {
 enum ClockFaceId {
   FACE_RAINBOW_GRID = 0,
   FACE_SEVEN_SEG = 1,
-  FACE_BIG_CYAN = 2,
-  FACE_GOLD = 3,
-  FACE_CUSTOM = 4,
-  FACE_COUNT = 5
+  FACE_GOLD = 2,
+  FACE_CUSTOM = 3,
+  FACE_COUNT = 4
 };
 int currentFace = FACE_RAINBOW_GRID;
 
@@ -246,7 +234,6 @@ void ensureCustomFaceLoaded() {
 
 const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
-  if (currentFace == FACE_BIG_CYAN) return THEME_CYAN;
   if (currentFace == FACE_GOLD) return THEME_GOLD;
   if (currentFace == FACE_CUSTOM) {
     static BadgeTheme customTheme;
@@ -433,21 +420,6 @@ void drawSevenSegDigitCell(int col, char ch) {
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
-// ---- Big single-colour face ---------------------------------------------
-// One bold cyan colour for the whole time, in BebasDigits123 - a tall,
-// condensed, hard-edged font (deliberately different from the rounded
-// Fredoka used on the rainbow face) that reads clearly from across a room.
-const uint16_t COL_BIG_CYAN = tft.color565(0, 229, 255);
-
-void drawBigCyanDigitCell(int col, char ch) {
-  int x = colX(col);
-  digitSpr.fillSprite(COL_BG);
-  digitSpr.setTextColor(COL_BIG_CYAN, COL_BG);
-  digitSpr.setTextDatum(MC_DATUM);
-  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
-  digitSpr.pushSprite(x, CLOCK_TOP);
-}
-
 // ---- Gold face -----------------------------------------------------------
 // Bold gold digits in BebasDigits123, with the same top-lit gloss the
 // rainbow face uses (applyDigitGloss() above) - brightening a solid gold
@@ -465,7 +437,7 @@ void drawGoldDigitCell(int col, char ch) {
 }
 
 // digitSpr holds one smooth font at a time (Fredoka for the rainbow face,
-// Bebas for the big-cyan face - the LED face doesn't use a font at all).
+// Bebas for the gold face - the LED face doesn't use a font at all).
 // Custom face picks between the two via customCfg.fontId (from face.cfg -
 // see ensureCustomFaceLoaded(), which must run before this so the choice
 // is already loaded by the time this checks it). Reloading a font takes a
@@ -475,8 +447,8 @@ void drawGoldDigitCell(int col, char ch) {
 void ensureDigitFont() {
   static int loadedFont = -1; // -1 = none yet, 0 = Fredoka, 1 = Bebas
   int needed = currentFace == FACE_CUSTOM ? customCfg.fontId
-              : (currentFace == FACE_BIG_CYAN || currentFace == FACE_GOLD) ? 1
-                                                                            : 0;
+              : currentFace == FACE_GOLD  ? 1
+                                           : 0;
   if (needed == loadedFont) return;
   digitSpr.unloadFont();
   if (needed == 1) digitSpr.loadFont(BebasDigits123);
@@ -524,8 +496,6 @@ void drawCustomDigitCell(int col, char ch) {
 void drawDigitCell(int col, char ch) {
   if (currentFace == FACE_SEVEN_SEG) {
     drawSevenSegDigitCell(col, ch);
-  } else if (currentFace == FACE_BIG_CYAN) {
-    drawBigCyanDigitCell(col, ch);
   } else if (currentFace == FACE_GOLD) {
     drawGoldDigitCell(col, ch);
   } else if (currentFace == FACE_CUSTOM) {

@@ -204,17 +204,16 @@ your router's client list instead). Reflash, hold OK for 3s at power-up, or
 use the on-device WiFi menu item to reconnect to a different network.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between five clock faces: the rainbow grid face; a retro LED face
+cycle between four clock faces: the rainbow grid face; a retro LED face
 (classic digital-alarm-clock style 7-segment digits, bright red on black,
-with a faint ghost of the unlit segments); a big single-colour face (tall,
-condensed cyan digits in a different font - Bebas Neue rather than Fredoka
-- for maximum readability at a distance); a gold face (the same Bebas Neue
-digits, filled a rich metallic gold with a bright top-lit gloss - the same
-highlight effect the rainbow face uses, just applied to a solid gold fill
-instead of a different colour per digit); and [**Custom**](#custom-face),
-which shows your own background image and colours from an SD card. The
-status bar re-skins to match whichever face is active. The choice isn't
-saved across a power cycle - it always starts on the rainbow grid face.
+with a faint ghost of the unlit segments); a gold face (tall, condensed
+Bebas Neue digits filled a rich metallic gold, with a bright top-lit gloss
+- the same highlight effect the rainbow face uses, just applied to a solid
+gold fill instead of a different colour per digit); and
+[**Custom**](#custom-face), which shows your own background image and
+colours from an SD card. The status bar re-skins to match whichever face
+is active. The choice isn't saved across a power cycle - it always starts
+on the rainbow grid face.
 
 ### Custom Face
 
@@ -231,10 +230,10 @@ Put two files at `/faces/custom/` on the [SD card](#optional-sd-card-browser):
   ```
   `font` is `bebas` (Bebas Neue - tall/condensed, default) or `fredoka`
   (rounded) - the only two digit fonts actually compiled into the
-  firmware (also used by the big single-colour and rainbow grid faces
-  respectively). A genuinely new third font would mean converting and
-  compiling a new glyph table into the firmware itself - not something
-  either build tool can do on its own.
+  firmware (also used by the gold and rainbow grid faces respectively).
+  A genuinely new third font would mean converting and compiling a new
+  glyph table into the firmware itself - not something either build tool
+  can do on its own.
 
 Two ways to build both from any image - same output either way:
 
@@ -342,7 +341,7 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   `digitSpr.loadFont(...)` — no filesystem/SPIFFS needed. The rainbow face
   uses `FredokaDigits87.h` (digits 0-9 rendered from
   [Fredoka](https://fonts.google.com/specimen/Fredoka) Bold at 87pt); the
-  big single-colour face uses `BebasDigits123.h` (from
+  gold face uses `BebasDigits123.h` (from
   [Bebas Neue](https://fonts.google.com/specimen/Bebas+Neue) at 123pt — a
   tall condensed face chosen deliberately for a very different look). Both
   are OFL-1.1 licensed. To use a different font, rasterize new glyphs into
