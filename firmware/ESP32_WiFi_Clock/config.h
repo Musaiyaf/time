@@ -81,3 +81,15 @@
 // ---------------------------------------------------------------------
 #define RTC_SDA_PIN 8
 #define RTC_SCL_PIN 9
+
+// ---------------------------------------------------------------------
+// Optional SD card module (SPI) - lets the on-device menu browse its
+// files. Runs on its own dedicated SPI bus, entirely separate from the
+// display's, so there's no bus-sharing to get right - just a plain
+// 4-wire SPI hookup. Entirely optional hardware: if nothing responds,
+// the SD Card menu item just says so. See sd_card.h/.cpp.
+// ---------------------------------------------------------------------
+#define SD_SCLK_PIN 15
+#define SD_MISO_PIN 16
+#define SD_MOSI_PIN 17
+#define SD_CS_PIN   18

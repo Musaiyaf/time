@@ -11,11 +11,13 @@
 // - Hold the OK button (GPIO0/BOOT) for 3s at power-up to wipe saved WiFi
 //   settings and force that same "no WiFi" prompt on the next boot.
 // - While the clock is running: LEFT/RIGHT tap cycles clock faces; holding
-//   OK opens an on-device Settings menu (WiFi, Time Zone, Date/Time,
-//   About) navigated with the same three buttons - see menu.h/menu.cpp.
-//   WiFi there scans, lets you pick a network and type its password on an
-//   on-screen keyboard, then connects (this also gets you out of Manual
-//   Mode, and re-syncs the real time over NTP once connected).
+//   OK opens the on-device main menu (SD Card, Settings, Back) navigated
+//   with the same three buttons - see menu.h/menu.cpp. Settings holds
+//   WiFi, Time Zone, Date/Time and About; WiFi there scans, lets you pick
+//   a network and type its password on an on-screen keyboard, then
+//   connects (this also gets you out of Manual Mode, and re-syncs the
+//   real time over NTP once connected). SD Card is a read-only browser
+//   for an optional SD card module (see sd_card.h).
 //
 // Board settings (Arduino IDE / arduino-cli):
 //   Board: "ESP32S3 Dev Module"
@@ -24,9 +26,10 @@
 //   Partition Scheme: "Default 4MB with spiffs" (or any scheme with OTA off)
 //
 // Library dependencies: TFT_eSPI (configured via TFT_eSPI_Setup/User_Setup.h,
-// see the repo README). WiFi, WebServer, DNSServer, ESPmDNS, Wire and
-// Preferences ship with the ESP32 Arduino core. The DS3231 RTC (rtc_backup.cpp)
-// is driven directly over Wire/I2C - no extra RTC library needed.
+// see the repo README). WiFi, WebServer, DNSServer, ESPmDNS, Wire, SPI, SD
+// and Preferences all ship with the ESP32 Arduino core. The DS3231 RTC
+// (rtc_backup.cpp) is driven directly over Wire/I2C - no extra RTC library
+// needed.
 
 #include <WiFi.h>
 #include <WebServer.h>
@@ -38,6 +41,7 @@
 #include "clock_display.h"
 #include "menu.h"
 #include "rtc_backup.h"
+#include "sd_card.h"
 
 WebServer server(80);
 DNSServer dnsServer;
@@ -73,6 +77,7 @@ void setup() {
   ClockDisplay::showBootMessage("ESP32 Grid Clock", "Starting...");
 
   RtcBackup::begin(); // probes for an optional DS3231 backup RTC
+  SdCard::begin();    // probes for an optional SD card module
   WifiManager::begin();
 
   // Hold the OK button for 3s right after boot to wipe saved WiFi. This

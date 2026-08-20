@@ -27,6 +27,9 @@ on-device menu.
   power loss (see [Manual Mode](#using-the-clock)). Needs a CR2032 coin
   cell in the module's holder; the firmware works fine without one, it
   just falls back to its Jan-1 placeholder when offline instead.
+- *Optional:* SD card module, SPI - browse its files from the on-device
+  menu. Works fine without one; the SD Card menu item just says there's no
+  card.
 
 ### Wiring
 
@@ -61,6 +64,24 @@ Not wiring one up is fine — the firmware probes for it once at boot and
 just skips every RTC-related step if nothing answers. Change
 `RTC_SDA_PIN`/`RTC_SCL_PIN` in `config.h` if you wire it to different GPIOs.
 
+### Optional: SD card browser
+
+| SD module pin | ESP32-S3 GPIO |
+|---|---|
+| SCK | 15 |
+| MISO | 16 |
+| MOSI | 17 |
+| CS | 18 |
+| VCC | 3V3 or 5V (check your module — some need 5V) |
+| GND | GND |
+
+Runs on its own dedicated SPI bus, entirely separate from the display's, so
+there's no bus-sharing to get right. Not wiring one up is fine — the
+firmware probes for a card once at boot and the SD Card menu item just
+says there's no card if nothing answers. Change `SD_SCLK_PIN`/
+`SD_MISO_PIN`/`SD_MOSI_PIN`/`SD_CS_PIN` in `config.h` if you wire it to
+different GPIOs.
+
 ### Buttons
 
 Three momentary pushbuttons, each wired between a GPIO and GND (the
@@ -89,9 +110,10 @@ firmware/ESP32_WiFi_Clock/
   web_portal.h/.cpp       - the setup webserver (scan/save/reset routes)
   webpage_html.h          - the self-contained HTML/CSS/JS setup page
   clock_display.h/.cpp    - TFT_eSPI rendering of the clock theme
-  menu.h/.cpp             - on-device settings menu (WiFi, Time Zone, Date/Time, About)
+  menu.h/.cpp             - on-device main menu + settings menu (WiFi, Time Zone, Date/Time, About)
   tz_database.h           - ~430 IANA zones grouped by continent, for menu.cpp
   rtc_backup.h/.cpp        - optional DS3231 backup RTC over I2C (raw Wire, no library)
+  sd_card.h/.cpp           - optional SD card module (SD/SPI, ships with the ESP32 core)
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
 .github/workflows/build-firmware.yml - CI build producing a flashable .bin
 ```
@@ -188,34 +210,46 @@ Fredoka - for maximum readability at a distance). The status bar re-skins
 to match whichever face is active. The choice isn't saved across a power
 cycle - it always starts on the rainbow grid face.
 
-**On-device settings menu:** hold OK (not a tap - hold it down) on any
-clock face to open the top-level menu: two icon tiles, **Settings** and
-**Back**. LEFT/RIGHT move the selection, a tap of OK confirms it, and
-holding OK backs out a level (or exits the menu entirely from the top
-level). Selecting **Settings** opens a plain-text list with three items:
-- **WiFi** — scans for nearby networks and shows them one at a time
-  (LEFT/RIGHT to browse, hold OK to go back to the list without changing
-  anything). Tap OK on a network to select it; if it's locked, an on-screen
-  keyboard appears (LEFT/RIGHT cycles through a letter/digit/symbol at a
-  time, OK types the highlighted character, and DELETE/CONNECT/CANCEL sit
-  at the end of the same carousel). It then connects and, on success, saves
-  the new credentials to NVS, re-syncs the time over NTP, and re-announces
-  mDNS — no reboot needed. This is also how you get out of **Manual Mode**:
-  connecting successfully here switches the clock over immediately.
-- **Time Zone** — pick a region (Africa, America, Asia, Europe, ...), then
-  a specific zone within it; the picker opens on whichever zone is
-  currently active. Covers the same ~430 IANA zones as the web page's time
-  zone search box, colour-coded by region. Confirming applies the new POSIX
-  TZ string immediately (saved to NVS, and the clock re-syncs against it)
-  — no reboot needed.
-- **Date/Time** — sets the clock by hand, one field at a time (Year, Month,
-  Day, Hour, Minute): LEFT/RIGHT changes the highlighted field, OK confirms
-  it and moves to the next, and confirming Minute applies the change right
-  away (holding OK at any point cancels instead). This is how you correct
-  **Manual Mode**'s placeholder clock, or nudge the time by hand any time.
-- **About** — shows the clock's current IP address and its mDNS hostname
-  (`esp32-clock.local`), the two ways to reach the web setup page, or
-  "Offline" while there's no WiFi connection (e.g. in Manual Mode).
+**On-device main menu:** hold OK (not a tap - hold it down) on any clock
+face to open the top-level menu: three icon tiles, **SD Card**,
+**Settings** and **Back**. LEFT/RIGHT move the selection, a tap of OK
+confirms it, and holding OK backs out a level (or exits the menu entirely
+from the top level).
+
+- **SD Card** — a read-only file browser for the [optional SD card
+  module](#optional-sd-card-browser): LEFT/RIGHT browses entries in the
+  current folder, OK opens a folder or "views" a file (its full name and
+  exact byte size — this firmware doesn't render file contents, just
+  browses them), and holding OK goes back up a folder, then out of the
+  browser entirely once you're back at the root. Says "No SD card found"
+  if nothing's wired up.
+- **Settings** — opens a plain-text list with four items:
+  - **WiFi** — scans for nearby networks and shows them one at a time
+    (LEFT/RIGHT to browse, hold OK to go back to the list without changing
+    anything). Tap OK on a network to select it; if it's locked, an
+    on-screen keyboard appears (LEFT/RIGHT cycles through a
+    letter/digit/symbol at a time, OK types the highlighted character, and
+    DELETE/CONNECT/CANCEL sit at the end of the same carousel). It then
+    connects and, on success, saves the new credentials to NVS, re-syncs
+    the time over NTP, and re-announces mDNS — no reboot needed. This is
+    also how you get out of **Manual Mode**: connecting successfully here
+    switches the clock over immediately.
+  - **Time Zone** — pick a region (Africa, America, Asia, Europe, ...),
+    then a specific zone within it; the picker opens on whichever zone is
+    currently active. Covers the same ~430 IANA zones as the web page's
+    time zone search box, colour-coded by region. Confirming applies the
+    new POSIX TZ string immediately (saved to NVS, and the clock re-syncs
+    against it) — no reboot needed.
+  - **Date/Time** — sets the clock by hand, one field at a time (Year,
+    Month, Day, Hour, Minute): LEFT/RIGHT changes the highlighted field,
+    OK confirms it and moves to the next, and confirming Minute applies
+    the change right away (holding OK at any point cancels instead). This
+    is how you correct **Manual Mode**'s placeholder clock, or nudge the
+    time by hand any time.
+  - **About** — shows the clock's current IP address and its mDNS
+    hostname (`esp32-clock.local`), the two ways to reach the web setup
+    page, or "Offline" while there's no WiFi connection (e.g. in Manual
+    Mode).
 
 **Manual Mode:** fully offline - no WiFi, no NTP, no web setup page. With a
 [DS3231 backup RTC](#optional-ds3231-rtc-backup) wired up, it restores

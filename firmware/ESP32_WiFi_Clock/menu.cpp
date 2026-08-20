@@ -3,6 +3,7 @@
 #include "clock_display.h"
 #include "wifi_manager.h"
 #include "tz_database.h"
+#include "sd_card.h"
 #include <WiFi.h>
 
 namespace {
@@ -88,20 +89,21 @@ const uint16_t COL_ICON_WIFI = rgb565(0, 217, 255);   // cyan
 const uint16_t COL_ICON_TZ   = rgb565(255, 159, 28);  // orange
 const uint16_t COL_ICON_BACK = rgb565(255, 79, 163);  // pink
 const uint16_t COL_ICON_DATETIME = rgb565(140, 255, 150); // mint green
+const uint16_t COL_ICON_SD = rgb565(255, 210, 60);    // gold
 
 // ---- menu state -------------------------------------------------------
-// CLOCK -> MAIN (2 icon tiles: Settings, Back) -> SETTINGS (text list:
-// WiFi, Time Zone, Date/Time, About) -> CONTINENT -> ZONE, or -> ABOUT.
-// WiFi and Date/Time don't get their own states - selecting them runs the
-// blocking runWifiPicker() (scan -> pick network -> type password ->
-// connect) or runDateTimeSetter() flow and returns straight back to
-// SETTINGS.
+// CLOCK -> MAIN (3 icon tiles: SD Card, Settings, Back) -> SETTINGS (text
+// list: WiFi, Time Zone, Date/Time, About) -> CONTINENT -> ZONE, or ->
+// ABOUT. SD Card, WiFi and Date/Time don't get their own states -
+// selecting them runs the blocking runSdBrowser(), runWifiPicker() (scan
+// -> pick network -> type password -> connect) or runDateTimeSetter()
+// flow and returns straight back to MAIN/SETTINGS.
 enum State { ST_CLOCK, ST_MAIN, ST_SETTINGS, ST_CONTINENT, ST_ZONE, ST_ABOUT, ST_SAVED };
 State state = ST_CLOCK;
 
-const int MAIN_TILE_COUNT = 2;
-const char *const MAIN_LABELS[MAIN_TILE_COUNT] = {"Settings", "Back"};
-const uint16_t MAIN_COLORS[MAIN_TILE_COUNT] = {COL_SETTINGS_ACCENT, COL_ICON_BACK};
+const int MAIN_TILE_COUNT = 3;
+const char *const MAIN_LABELS[MAIN_TILE_COUNT] = {"SD Card", "Settings", "Back"};
+const uint16_t MAIN_COLORS[MAIN_TILE_COUNT] = {COL_ICON_SD, COL_SETTINGS_ACCENT, COL_ICON_BACK};
 int mainIndex = 0;
 
 const int SETTINGS_COUNT = 4;
@@ -204,6 +206,18 @@ void iconClock(TFT_eSPI &tft, int cx, int cy, uint16_t color) {
   tft.fillCircle(cx, cy, 2, color);
 }
 
+// A memory-card silhouette for "SD Card": a rounded rect with a notched
+// corner and three short "contact" marks near the bottom.
+void iconSdCard(TFT_eSPI &tft, int cx, int cy, uint16_t color) {
+  const int w = 22, h = 28;
+  int x = cx - w / 2, y = cy - h / 2;
+  tft.fillRoundRect(x, y, w, h, 3, color);
+  tft.fillTriangle(x, y, x + 9, y, x, y + 9, COL_BG); // notch the top-left corner
+  for (int i = 0; i < 3; i++) {
+    tft.fillRect(x + 4 + i * 6, y + h - 9, 3, 6, COL_BG);
+  }
+}
+
 void drawMainTiles() {
   TFT_eSPI &tft = ClockDisplay::rawDisplay();
   tft.fillScreen(COL_BG);
@@ -222,7 +236,8 @@ void drawMainTiles() {
     if (sel) tft.drawRoundRect(x + 1, y0 + 1, tileW - 2, tileH - 2, 11, border);
 
     int cx = x + tileW / 2, cy = y0 + 36;
-    if (i == 0) iconGear(tft, cx, cy, MAIN_COLORS[i]);
+    if (i == 0) iconSdCard(tft, cx, cy, MAIN_COLORS[i]);
+    else if (i == 1) iconGear(tft, cx, cy, MAIN_COLORS[i]);
     else iconClock(tft, cx, cy, MAIN_COLORS[i]);
 
     tft.setFreeFont(&FreeSansBold9pt7b);
@@ -463,6 +478,100 @@ void runDateTimeSetter() {
   }
 }
 
+// ---- SD card browser ---------------------------------------------------
+// Read-only: lists files/folders and lets you drill into directories or
+// "view" a file's name and exact size. This firmware has no text/image
+// viewer, so opening a file just shows those details rather than its
+// contents. Fully blocking, same pattern as the WiFi picker/Date-Time
+// setter above.
+const int SD_MAX_ENTRIES = 40;
+
+// Human-friendly size, since raw byte counts get long fast on real cards.
+String formatSize(uint32_t bytes) {
+  if (bytes < 1024) return String(bytes) + "B";
+  if (bytes < 1024UL * 1024) return String(bytes / 1024.0, 1) + "KB";
+  return String(bytes / (1024.0 * 1024), 1) + "MB";
+}
+
+String sdChildPath(const String &parent, const String &name) {
+  return (parent == "/") ? "/" + name : parent + "/" + name;
+}
+
+String sdParentPath(const String &path) {
+  if (path == "/") return "/";
+  int slash = path.lastIndexOf('/');
+  return (slash <= 0) ? "/" : path.substring(0, slash);
+}
+
+void runSdBrowser() {
+  if (!SdCard::isPresent()) {
+    drawScreen("SD CARD", COL_WARN, COL_BG, "No SD card found", COL_WARN, "", "tap OK to go back");
+    blockForOk();
+    return;
+  }
+
+  String path = "/";
+  static SdCard::Entry entries[SD_MAX_ENTRIES];
+  int count = 0;
+  int idx = 0;
+  bool dirtyLocal = true;
+  bool needReload = true;
+
+  while (true) {
+    if (needReload) {
+      count = SdCard::listDir(path, entries, SD_MAX_ENTRIES);
+      idx = 0;
+      needReload = false;
+      dirtyLocal = true;
+    }
+
+    bool lt, ll, rt, rl, ot, ol;
+    btnLeft.poll(lt, ll);
+    btnRight.poll(rt, rl);
+    btnOk.poll(ot, ol);
+
+    if (count > 0) {
+      if (lt) { idx = (idx + count - 1) % count; dirtyLocal = true; }
+      if (rt) { idx = (idx + 1) % count; dirtyLocal = true; }
+    }
+
+    if (ol) {
+      if (path == "/") return; // back out of the browser entirely
+      path = sdParentPath(path);
+      needReload = true;
+      continue;
+    }
+
+    if (ot && count > 0) {
+      if (entries[idx].isDir) {
+        path = sdChildPath(path, entries[idx].name);
+        needReload = true;
+        continue;
+      }
+      drawScreen("FILE", COL_HEADING_BG, COL_HEADING_TXT, entries[idx].name,
+                 COL_ICON_SD, String(entries[idx].size) + " bytes", "tap or hold: back");
+      blockForOk();
+      dirtyLocal = true;
+      continue;
+    }
+
+    if (dirtyLocal) {
+      String label, pos;
+      if (count == 0) {
+        label = "(empty)";
+      } else {
+        const SdCard::Entry &e = entries[idx];
+        label = e.isDir ? ("[DIR] " + e.name) : (e.name + "  " + formatSize(e.size));
+        pos = String(idx + 1) + " / " + String(count);
+      }
+      drawScreen(path, COL_HEADING_BG, COL_HEADING_TXT, label, COL_ICON_SD, pos,
+                 "< > browse   OK open   hold back");
+      dirtyLocal = false;
+    }
+    delay(5);
+  }
+}
+
 } // namespace
 
 namespace Menu {
@@ -580,6 +689,9 @@ bool handle() {
       if (okLong) exitToClock();
       else if (okTap) {
         if (mainIndex == 0) {
+          runSdBrowser(); // blocking; return value doesn't matter here
+          dirty = true;   // redraw MAIN tiles once it's done
+        } else if (mainIndex == 1) {
           state = ST_SETTINGS;
           settingsIndex = 0;
           dirty = true;
