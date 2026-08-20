@@ -69,7 +69,7 @@ firmware/ESP32_WiFi_Clock/
   web_portal.h/.cpp       - the setup webserver (scan/save/reset routes)
   webpage_html.h          - the self-contained HTML/CSS/JS setup page
   clock_display.h/.cpp    - TFT_eSPI rendering of the clock theme
-  menu.h/.cpp             - on-device settings menu (WiFi Setup, Time Zone)
+  menu.h/.cpp             - on-device settings menu (WiFi, Time Zone, About)
   tz_database.h           - ~430 IANA zones grouped by continent, for menu.cpp
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
 .github/workflows/build-firmware.yml - CI build producing a flashable .bin
@@ -152,13 +152,13 @@ including DST rules, automatically), then **Save & Connect**. The clock
 reboots and connects.
 
 **Changing WiFi or time zone later:** the easiest way is the on-device menu
-below (hold OK → **WiFi Setup**) or (hold OK → **Time Zone**) — no phone
-needed for the time zone case. The web page still works too: while
-connected it's served from the clock's own IP address (check your router's
-client list, or power-cycle the clock and read the IP off the brief
-"Waiting for NTP..." screen before it finishes syncing). Reflash, hold OK
-for 3s at power-up, or use the on-device WiFi Setup menu item to force
-setup mode again.
+below (hold OK → **Settings** → **WiFi** or **Time Zone**) — no phone
+needed for either. The web page still works too: while connected it's
+served from the clock's own IP address (check the on-device **About**
+screen, your router's client list, or power-cycle the clock and read the IP
+off the brief "Waiting for NTP..." screen before it finishes syncing).
+Reflash, hold OK for 3s at power-up, or use the on-device WiFi menu item to
+reconnect to a different network.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
 cycle between three clock faces: the rainbow grid face; a retro LED face
@@ -170,17 +170,27 @@ to match whichever face is active. The choice isn't saved across a power
 cycle - it always starts on the rainbow grid face.
 
 **On-device settings menu:** hold OK (not a tap - hold it down) on any
-clock face to open the settings menu. LEFT/RIGHT move the selection, a tap
-of OK confirms it, and holding OK backs out a level (or exits the menu
-entirely from the top level). Two items:
-- **WiFi Setup** — asks to confirm, then reboots into the same AP setup
-  flow as holding OK for 3s at power-up (see "First boot" above).
+clock face to open the top-level menu: two icon tiles, **Settings** and
+**Back**. LEFT/RIGHT move the selection, a tap of OK confirms it, and
+holding OK backs out a level (or exits the menu entirely from the top
+level). Selecting **Settings** opens a plain-text list with three items:
+- **WiFi** — scans for nearby networks and shows them one at a time
+  (LEFT/RIGHT to browse, hold OK to go back to the list without changing
+  anything). Tap OK on a network to select it; if it's locked, an on-screen
+  keyboard appears (LEFT/RIGHT cycles through a letter/digit/symbol at a
+  time, OK types the highlighted character, and DELETE/CONNECT/CANCEL sit
+  at the end of the same carousel). It then connects and, on success, saves
+  the new credentials to NVS — no reboot needed. This same scan-and-pick
+  flow runs automatically at boot if the previously-saved network can't be
+  reached, instead of dropping straight into AP setup mode.
 - **Time Zone** — pick a region (Africa, America, Asia, Europe, ...), then
   a specific zone within it; the picker opens on whichever zone is
   currently active. Covers the same ~430 IANA zones as the web page's time
   zone search box, colour-coded by region. Confirming applies the new POSIX
   TZ string immediately (saved to NVS, and the clock re-syncs against it)
   — no reboot needed.
+- **About** — shows the clock's current IP address (the same one the web
+  setup page is served from).
 
 **Time zone (advanced):** the search box above just fills in the "POSIX time
 zone string" field under **Advanced** — you can also type/paste one directly

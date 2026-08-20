@@ -9,8 +9,11 @@
 // - Hold the OK button (GPIO0/BOOT) for 3s at power-up to wipe saved WiFi
 //   settings and return to setup mode.
 // - While the clock is running: LEFT/RIGHT tap cycles clock faces; holding
-//   OK opens an on-device settings menu (WiFi Setup, Time Zone) navigated
-//   with the same three buttons - see menu.h/menu.cpp.
+//   OK opens an on-device Settings menu (WiFi, Time Zone, About) navigated
+//   with the same three buttons - see menu.h/menu.cpp. WiFi there scans,
+//   lets you pick a network and type its password on an on-screen
+//   keyboard, then connects - the same flow used automatically at boot if
+//   the saved network can't be reached.
 //
 // Board settings (Arduino IDE / arduino-cli):
 //   Board: "ESP32S3 Dev Module"
@@ -72,6 +75,15 @@ void setup() {
   if (haveCreds) {
     ClockDisplay::showBootMessage("Connecting to", ssid);
     connected = WifiManager::connectSTA(ssid, pass, WIFI_CONNECT_TIMEOUT_MS);
+  }
+
+  // Saved network unreachable (moved router, changed password, out of
+  // range, ...): offer the same on-device scan/pick/connect flow used from
+  // the Settings menu, before falling all the way back to AP setup mode.
+  if (!connected && haveCreds) {
+    ClockDisplay::showBootMessage("Couldn't connect", "Pick a WiFi network...");
+    delay(1200);
+    connected = Menu::runWifiPicker();
   }
 
   if (connected) {

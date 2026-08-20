@@ -3,6 +3,7 @@
 #include "clock_display.h"
 #include "wifi_manager.h"
 #include "tz_database.h"
+#include <WiFi.h>
 
 namespace {
 
@@ -54,6 +55,20 @@ struct Btn {
 
 Btn btnLeft, btnRight, btnOk;
 
+// Blocks until OK is tapped (returns true) or held long (returns false) -
+// used by the WiFi picker's own message screens ("No networks found",
+// "Connect failed", ...), which live outside the async Menu::handle()
+// state machine.
+bool blockForOk() {
+  while (true) {
+    bool t, l;
+    btnOk.poll(t, l);
+    if (t) return true;
+    if (l) return false;
+    delay(10);
+  }
+}
+
 // ---- colours --------------------------------------------------------------
 uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
   return ((uint16_t)(r & 0xF8) << 8) | ((uint16_t)(g & 0xFC) << 3) | (b >> 3);
@@ -63,27 +78,35 @@ const uint16_t COL_HEADING_BG = rgb565(35, 38, 46);   // neutral dark grey
 const uint16_t COL_HEADING_TXT = rgb565(210, 214, 222);
 const uint16_t COL_ITEM_TXT_DIM = rgb565(140, 145, 155);
 const uint16_t COL_HINT_TXT  = rgb565(120, 125, 135);
-const uint16_t COL_SETTINGS_ACCENT = rgb565(120, 200, 255); // Time Zone continent/zone screens
+const uint16_t COL_SETTINGS_ACCENT = rgb565(120, 200, 255); // gear icon, Time Zone screens, About
 const uint16_t COL_WARN      = rgb565(255, 90, 90);
 const uint16_t COL_TILE_BORDER = rgb565(50, 54, 62);  // unselected tile outline
 
-// Vibrant per-icon colours for the top-level tiles, reusing the same
-// pink/orange/cyan family as the rainbow clock face for visual consistency
-// across the whole firmware.
+// Vibrant per-item colours, reusing the same pink/orange/cyan family as the
+// rainbow clock face for visual consistency across the whole firmware.
 const uint16_t COL_ICON_WIFI = rgb565(0, 217, 255);   // cyan
 const uint16_t COL_ICON_TZ   = rgb565(255, 159, 28);  // orange
 const uint16_t COL_ICON_BACK = rgb565(255, 79, 163);  // pink
 
 // ---- menu state -------------------------------------------------------
-enum State { ST_CLOCK, ST_MAIN, ST_CONTINENT, ST_ZONE, ST_WIFI_CONFIRM, ST_SAVED };
+// CLOCK -> MAIN (2 icon tiles: Settings, Back) -> SETTINGS (text list:
+// WiFi, Time Zone, About) -> CONTINENT -> ZONE, or -> ABOUT. WiFi doesn't
+// get its own state - selecting it runs the blocking runWifiPicker() flow
+// (scan -> pick network -> type password -> connect) and returns straight
+// back to SETTINGS.
+enum State { ST_CLOCK, ST_MAIN, ST_SETTINGS, ST_CONTINENT, ST_ZONE, ST_ABOUT, ST_SAVED };
 State state = ST_CLOCK;
 
-// Top-level menu tiles: WiFi Setup, Time Zone, Back (exits to the clock
-// face - the same thing holding OK does, but selectable directly too).
-const int MAIN_TILE_COUNT = 3;
-const char *const MAIN_LABELS[MAIN_TILE_COUNT] = {"WiFi", "Time Zone", "Back"};
-const uint16_t MAIN_COLORS[MAIN_TILE_COUNT] = {COL_ICON_WIFI, COL_ICON_TZ, COL_ICON_BACK};
+const int MAIN_TILE_COUNT = 2;
+const char *const MAIN_LABELS[MAIN_TILE_COUNT] = {"Settings", "Back"};
+const uint16_t MAIN_COLORS[MAIN_TILE_COUNT] = {COL_SETTINGS_ACCENT, COL_ICON_BACK};
 int mainIndex = 0;
+
+const int SETTINGS_COUNT = 3;
+const char *const SETTINGS_LABELS[SETTINGS_COUNT] = {"WiFi", "Time Zone", "About"};
+const uint16_t SETTINGS_COLORS[SETTINGS_COUNT] = {COL_ICON_WIFI, COL_ICON_TZ, COL_SETTINGS_ACCENT};
+int settingsIndex = 0;
+
 int continentIndex = 0;
 int zoneIndex = 0; // index within TZ_ZONES for the current continent
 String savedZoneName;
@@ -110,9 +133,9 @@ void findCurrentZone(int &outContinent, int &outZoneIndex) {
 }
 
 // ---- rendering ----------------------------------------------------------
-// One consistent screen layout, reused for every menu level: a coloured
-// heading bar, a big centred item name, a small position indicator, and a
-// bottom hint line describing what the buttons do right now.
+// One consistent screen layout, reused for every text-based menu level: a
+// coloured heading bar, a big centred item name, a small position
+// indicator, and a bottom hint line describing what the buttons do now.
 void drawScreen(const String &heading, uint16_t headingBg, uint16_t headingTxt,
                  const String &item, uint16_t itemColor,
                  const String &position, const String &hint) {
@@ -161,20 +184,14 @@ void iconRing(TFT_eSPI &tft, int cx, int cy, int r, int thickness, uint16_t colo
   tft.fillCircle(cx, cy, r - thickness, COL_BG);
 }
 
-void iconWifi(TFT_eSPI &tft, int cx, int cy, uint16_t color) {
-  int baseY = cy + 14;
-  for (int i = 0; i < 4; i++) {
-    int h = 7 + i * 5;
-    tft.fillRoundRect(cx - 22 + i * 12, baseY - h, 7, h, 2, color);
-  }
-}
-
-// A small "globe" for Time Zone: a bold ring with an equator and a prime
-// meridian through it, evoking world regions rather than a literal clock.
-void iconGlobe(TFT_eSPI &tft, int cx, int cy, uint16_t color) {
-  iconRing(tft, cx, cy, 15, 3, color);
-  tft.drawFastHLine(cx - 15, cy, 30, color);
-  tft.drawFastVLine(cx, cy - 15, 30, color);
+// A gear for "Settings".
+void iconGear(TFT_eSPI &tft, int cx, int cy, uint16_t color) {
+  iconRing(tft, cx, cy, 12, 3, color);
+  tft.fillRect(cx - 3, cy - 17, 6, 5, color);  // top tooth
+  tft.fillRect(cx - 3, cy + 12, 6, 5, color);  // bottom tooth
+  tft.fillRect(cx - 17, cy - 3, 5, 6, color);  // left tooth
+  tft.fillRect(cx + 12, cy - 3, 5, 6, color);  // right tooth
+  tft.fillCircle(cx, cy, 4, color);            // hub
 }
 
 // An analogue clock face for "Back" (return to the clock face).
@@ -203,11 +220,8 @@ void drawMainTiles() {
     if (sel) tft.drawRoundRect(x + 1, y0 + 1, tileW - 2, tileH - 2, 11, border);
 
     int cx = x + tileW / 2, cy = y0 + 36;
-    switch (i) {
-      case 0: iconWifi(tft, cx, cy, MAIN_COLORS[i]); break;
-      case 1: iconGlobe(tft, cx, cy, MAIN_COLORS[i]); break;
-      default: iconClock(tft, cx, cy, MAIN_COLORS[i]); break;
-    }
+    if (i == 0) iconGear(tft, cx, cy, MAIN_COLORS[i]);
+    else iconClock(tft, cx, cy, MAIN_COLORS[i]);
 
     tft.setFreeFont(&FreeSansBold9pt7b);
     tft.setTextColor(sel ? TFT_WHITE : COL_ITEM_TXT_DIM, COL_BG);
@@ -225,6 +239,12 @@ void render() {
     case ST_MAIN:
       drawMainTiles();
       break;
+    case ST_SETTINGS: {
+      String pos = String(settingsIndex + 1) + " / " + String(SETTINGS_COUNT);
+      drawScreen("SETTINGS", COL_HEADING_BG, COL_HEADING_TXT,
+                 SETTINGS_LABELS[settingsIndex], SETTINGS_COLORS[settingsIndex], pos, HINT_NAV);
+      break;
+    }
     case ST_CONTINENT: {
       String pos = String(continentIndex + 1) + " / " + String(TZ_CONTINENT_COUNT);
       uint16_t accent = TZ_CONTINENT_COLORS[continentIndex];
@@ -241,10 +261,10 @@ void render() {
                  z.name, accent, pos, HINT_NAV);
       break;
     }
-    case ST_WIFI_CONFIRM: {
-      drawScreen("WIFI SETUP", COL_WARN, COL_BG,
-                 "Reset & restart?", COL_WARN, "",
-                 "OK confirm   hold cancel");
+    case ST_ABOUT: {
+      String ip = WiFi.localIP().toString();
+      drawScreen("ABOUT", COL_HEADING_BG, COL_HEADING_TXT,
+                 ip, COL_SETTINGS_ACCENT, "Web setup page", "OK or hold: back");
       break;
     }
     case ST_SAVED: {
@@ -268,6 +288,83 @@ void exitToClock() {
   ClockDisplay::forceFullRedraw();
 }
 
+// ---- WiFi onboarding: scan -> pick network -> type password -> connect --
+// Fully blocking (its own button-poll loop), since it's a focused task the
+// rest of the UI naturally pauses for - same as the original AP-mode setup
+// screen already did. Runs from the Settings menu, and also from setup()
+// in the .ino when auto-connecting to the saved network fails.
+
+// On-screen "keyboard": one character (or a control action) at a time,
+// cycled with LEFT/RIGHT and appended with a tap of OK - the same
+// single-item-carousel interaction used everywhere else in this menu,
+// just applied to characters instead of menu items. There's no way to
+// avoid this being tedious with only two navigation buttons; the row is
+// ordered lowercase-first since most passwords lean that way.
+const char *const WIFI_CHARSET =
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "0123456789"
+    " !@#$%^&*()-_=+.,";
+const char *const WIFI_CTRL_LABELS[3] = {"DELETE", "CONNECT", "CANCEL"};
+const int WIFI_CTRL_DELETE = 0, WIFI_CTRL_CONNECT = 1, WIFI_CTRL_CANCEL = 2;
+
+// Returns true and fills outPassword if the user picked CONNECT; false if
+// they picked CANCEL or held OK.
+bool runPasswordEntry(const String &ssid, String &outPassword) {
+  int charsetLen = strlen(WIFI_CHARSET);
+  int totalPositions = charsetLen + 3;
+
+  String pw = "";
+  int pos = 0;
+  bool dirtyLocal = true;
+
+  while (true) {
+    bool lt, ll, rt, rl, ot, ol;
+    btnLeft.poll(lt, ll);
+    btnRight.poll(rt, rl);
+    btnOk.poll(ot, ol);
+
+    if (lt) { pos = (pos + totalPositions - 1) % totalPositions; dirtyLocal = true; }
+    if (rt) { pos = (pos + 1) % totalPositions; dirtyLocal = true; }
+    if (ol) return false; // hold OK: cancel entirely, back to the network list
+    if (ot) {
+      if (pos < charsetLen) {
+        pw += WIFI_CHARSET[pos];
+        dirtyLocal = true;
+      } else {
+        int ctrl = pos - charsetLen;
+        if (ctrl == WIFI_CTRL_DELETE) {
+          if (pw.length() > 0) pw.remove(pw.length() - 1);
+          dirtyLocal = true;
+        } else if (ctrl == WIFI_CTRL_CONNECT) {
+          outPassword = pw;
+          return true;
+        } else {
+          return false; // CANCEL
+        }
+      }
+    }
+
+    if (dirtyLocal) {
+      String itemLabel;
+      if (pos < charsetLen) {
+        char c = WIFI_CHARSET[pos];
+        itemLabel = (c == ' ') ? String("SPACE") : String(c);
+      } else {
+        itemLabel = WIFI_CTRL_LABELS[pos - charsetLen];
+      }
+      String shown = pw.length() ? pw : String("(empty)");
+      if (shown.length() > 24) shown = "..." + shown.substring(shown.length() - 21);
+      drawScreen(ssid, COL_HEADING_BG, COL_HEADING_TXT, itemLabel, COL_SETTINGS_ACCENT,
+                 shown, "< > char   OK pick   hold cancel");
+      dirtyLocal = false;
+    }
+    delay(5);
+  }
+}
+
+const int WIFI_MAX_NETWORKS = 30;
+
 } // namespace
 
 namespace Menu {
@@ -276,6 +373,69 @@ void begin() {
   btnLeft.begin(BTN_LEFT_PIN);
   btnRight.begin(BTN_RIGHT_PIN);
   btnOk.begin(BTN_OK_PIN);
+}
+
+bool runWifiPicker() {
+  drawScreen("WIFI SETUP", COL_HEADING_BG, COL_HEADING_TXT, "Scanning...", COL_SETTINGS_ACCENT, "", "");
+  int n = WiFi.scanNetworks();
+  if (n <= 0) {
+    drawScreen("WIFI SETUP", COL_WARN, COL_BG, "No networks found", COL_WARN, "", "tap OK to go back");
+    blockForOk();
+    WiFi.scanDelete();
+    return false;
+  }
+
+  int count = min(n, WIFI_MAX_NETWORKS);
+  String ssids[WIFI_MAX_NETWORKS];
+  bool secured[WIFI_MAX_NETWORKS];
+  for (int i = 0; i < count; i++) {
+    ssids[i] = WiFi.SSID(i);
+    secured[i] = WiFi.encryptionType(i) != WIFI_AUTH_OPEN;
+  }
+  WiFi.scanDelete();
+
+  int idx = 0;
+  bool dirtyLocal = true;
+  while (true) {
+    bool lt, ll, rt, rl, ot, ol;
+    btnLeft.poll(lt, ll);
+    btnRight.poll(rt, rl);
+    btnOk.poll(ot, ol);
+
+    if (lt) { idx = (idx + count - 1) % count; dirtyLocal = true; }
+    if (rt) { idx = (idx + 1) % count; dirtyLocal = true; }
+    if (ol) return false; // hold OK: cancel, back to Settings
+
+    if (ot) {
+      String pass;
+      if (secured[idx]) {
+        if (!runPasswordEntry(ssids[idx], pass)) {
+          dirtyLocal = true;
+          continue; // cancelled password entry - back to the network list
+        }
+      }
+      drawScreen("WIFI SETUP", COL_HEADING_BG, COL_HEADING_TXT, "Connecting...", COL_SETTINGS_ACCENT, ssids[idx], "");
+      bool ok = WifiManager::connectSTA(ssids[idx], pass, WIFI_CONNECT_TIMEOUT_MS);
+      if (ok) {
+        WifiManager::saveCredentials(ssids[idx], pass);
+        drawScreen("WIFI SETUP", COL_HEADING_BG, COL_HEADING_TXT, "Connected!", COL_SETTINGS_ACCENT, ssids[idx], "");
+        delay(1200);
+        return true;
+      }
+      drawScreen("WIFI SETUP", COL_WARN, COL_BG, "Connect failed", COL_WARN, ssids[idx], "OK: retry   hold: cancel");
+      if (!blockForOk()) return false; // held OK: give up, back to Settings
+      dirtyLocal = true;
+      continue; // tapped OK: back to the network list to try again
+    }
+
+    if (dirtyLocal) {
+      String label = ssids[idx] + (secured[idx] ? "  [locked]" : "  [open]");
+      String pos = String(idx + 1) + " / " + String(count);
+      drawScreen("WIFI NETWORKS", COL_HEADING_BG, COL_HEADING_TXT, label, COL_SETTINGS_ACCENT, pos, HINT_NAV);
+      dirtyLocal = false;
+    }
+    delay(5);
+  }
 }
 
 bool handle() {
@@ -298,11 +458,8 @@ bool handle() {
       if (okLong) exitToClock();
       else if (okTap) {
         if (mainIndex == 0) {
-          state = ST_WIFI_CONFIRM;
-          dirty = true;
-        } else if (mainIndex == 1) {
-          findCurrentZone(continentIndex, zoneIndex);
-          state = ST_CONTINENT;
+          state = ST_SETTINGS;
+          settingsIndex = 0;
           dirty = true;
         } else {
           exitToClock(); // "Back" tile - same as holding OK
@@ -311,10 +468,31 @@ bool handle() {
       break;
     }
 
+    case ST_SETTINGS: {
+      const int n = SETTINGS_COUNT;
+      if (leftTap) { settingsIndex = (settingsIndex + n - 1) % n; dirty = true; }
+      if (rightTap) { settingsIndex = (settingsIndex + 1) % n; dirty = true; }
+      if (okLong) { state = ST_MAIN; dirty = true; }
+      else if (okTap) {
+        if (settingsIndex == 0) {
+          runWifiPicker(); // blocking; return value doesn't matter here
+          dirty = true;    // redraw the Settings list once it's done
+        } else if (settingsIndex == 1) {
+          findCurrentZone(continentIndex, zoneIndex);
+          state = ST_CONTINENT;
+          dirty = true;
+        } else {
+          state = ST_ABOUT;
+          dirty = true;
+        }
+      }
+      break;
+    }
+
     case ST_CONTINENT:
       if (leftTap) { continentIndex = (continentIndex + TZ_CONTINENT_COUNT - 1) % TZ_CONTINENT_COUNT; dirty = true; }
       if (rightTap) { continentIndex = (continentIndex + 1) % TZ_CONTINENT_COUNT; dirty = true; }
-      if (okLong) { state = ST_MAIN; dirty = true; }
+      if (okLong) { state = ST_SETTINGS; dirty = true; }
       else if (okTap) {
         // Keep the preselected zone only if we're still on the continent
         // findCurrentZone() matched; otherwise start at the first zone.
@@ -345,12 +523,8 @@ bool handle() {
       break;
     }
 
-    case ST_WIFI_CONFIRM:
-      if (okLong) { state = ST_MAIN; dirty = true; }
-      else if (okTap) {
-        WifiManager::clearCredentials();
-        ESP.restart();
-      }
+    case ST_ABOUT:
+      if (okTap || okLong) { state = ST_SETTINGS; dirty = true; }
       break;
 
     case ST_SAVED:
