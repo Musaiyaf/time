@@ -536,13 +536,27 @@ void begin() {
   gridDrawn = true;
 }
 
-// Cycles to the next clock face (called on a BOOT-button tap) and forces a
-// full repaint on the next update() call, so the switch is visible right
-// away instead of waiting for a digit to actually change.
+// Cycles to the next/previous clock face and forces a full repaint on the
+// next update() call, so the switch is visible right away instead of
+// waiting for a digit to actually change.
 void nextFace() {
   currentFace = (currentFace + 1) % FACE_COUNT;
   ensureDigitFont();
   gridDrawn = false;
+}
+
+void prevFace() {
+  currentFace = (currentFace + FACE_COUNT - 1) % FACE_COUNT;
+  ensureDigitFont();
+  gridDrawn = false;
+}
+
+void forceFullRedraw() {
+  gridDrawn = false;
+}
+
+TFT_eSPI &rawDisplay() {
+  return tft;
 }
 
 void showBootMessage(const String &line1, const String &line2) {

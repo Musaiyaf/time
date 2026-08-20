@@ -22,9 +22,23 @@
 #define TFT_SCREEN_WIDTH  320
 #define TFT_SCREEN_HEIGHT 170
 
-// Hold this GPIO LOW (button to GND) for 3s right after power-up to wipe
+// ---------------------------------------------------------------------
+// Three-button navigation: LEFT / RIGHT cycle clock faces (or move the
+// selection inside a menu); OK opens/confirms things. All three are
+// buttons to GND, read with INPUT_PULLUP (so idle = HIGH, pressed = LOW).
+// BTN_LEFT_PIN/BTN_RIGHT_PIN need wiring to two free GPIOs - change these
+// to match if you wire them elsewhere. BTN_OK_PIN reuses the existing
+// BOOT button, so no extra wiring is needed for it.
+// ---------------------------------------------------------------------
+#define BTN_LEFT_PIN  4
+#define BTN_RIGHT_PIN 5
+#define BTN_OK_PIN    0   // BOOT button on most ESP32-S3 dev boards
+
+// Hold BTN_OK_PIN LOW (button to GND) for 3s right after power-up to wipe
 // the saved WiFi credentials and force the setup Access Point back on.
-#define WIFI_RESET_BUTTON_PIN 0   // BOOT button on most ESP32-S3 dev boards
+// This is separate from (and checked before) the menu system below - it
+// only runs once, at boot, before loop() and the Menu module exist.
+#define WIFI_RESET_HOLD_MS 3000UL
 
 // ---------------------------------------------------------------------
 // Setup Access Point (shown when there are no saved / working credentials)

@@ -6,9 +6,11 @@
 //   scan/pick a network (or type one manually), enter the password, and
 //   optionally a POSIX time zone + NTP servers. Saving reboots the clock,
 //   which then connects and syncs time over NTP.
-// - Hold the BOOT button (GPIO0) for 3s at power-up to wipe saved WiFi
-//   settings and return to setup mode. A quick tap of the same button while
-//   the clock is running cycles between clock faces instead.
+// - Hold the OK button (GPIO0/BOOT) for 3s at power-up to wipe saved WiFi
+//   settings and return to setup mode.
+// - While the clock is running: LEFT/RIGHT tap cycles clock faces; holding
+//   OK opens an on-device settings menu (WiFi Setup, Time Zone) navigated
+//   with the same three buttons - see menu.h/menu.cpp.
 //
 // Board settings (Arduino IDE / arduino-cli):
 //   Board: "ESP32S3 Dev Module"
@@ -28,6 +30,7 @@
 #include "wifi_manager.h"
 #include "web_portal.h"
 #include "clock_display.h"
+#include "menu.h"
 
 WebServer server(80);
 DNSServer dnsServer;
@@ -37,26 +40,30 @@ unsigned long staConnectedAt = 0;
 
 void setup() {
   Serial.begin(115200);
-  pinMode(WIFI_RESET_BUTTON_PIN, INPUT_PULLUP);
+  pinMode(BTN_OK_PIN, INPUT_PULLUP);
 
   ClockDisplay::begin();
   ClockDisplay::showBootMessage("ESP32 Grid Clock", "Starting...");
 
   WifiManager::begin();
 
-  // Hold the reset button for 3s right after boot to wipe saved WiFi.
-  if (digitalRead(WIFI_RESET_BUTTON_PIN) == LOW) {
+  // Hold the OK button for 3s right after boot to wipe saved WiFi. This
+  // only runs once, here, before Menu::begin() sets up button polling for
+  // normal (post-boot) use.
+  if (digitalRead(BTN_OK_PIN) == LOW) {
     ClockDisplay::showBootMessage("Keep holding to reset WiFi...", "");
     unsigned long t0 = millis();
-    while (digitalRead(WIFI_RESET_BUTTON_PIN) == LOW && millis() - t0 < 3000) {
+    while (digitalRead(BTN_OK_PIN) == LOW && millis() - t0 < WIFI_RESET_HOLD_MS) {
       delay(10);
     }
-    if (millis() - t0 >= 3000) {
+    if (millis() - t0 >= WIFI_RESET_HOLD_MS) {
       WifiManager::clearCredentials();
       ClockDisplay::showBootMessage("WiFi settings cleared", "");
       delay(1000);
     }
   }
+
+  Menu::begin();
 
   String ssid, pass;
   bool haveCreds = WifiManager::loadCredentials(ssid, pass);
@@ -102,23 +109,11 @@ void loop() {
     WiFi.reconnect();
   }
 
-  // A quick tap of the BOOT button (short press-and-release, debounced)
-  // cycles the clock face. This is separate from the "hold 3s at power-up
-  // to reset WiFi" gesture in setup(), which only runs once at boot.
-  static int lastButtonRead = HIGH;
-  static unsigned long lastButtonChangeMs = 0;
-  const unsigned long BUTTON_DEBOUNCE_MS = 40;
-  int buttonRead = digitalRead(WIFI_RESET_BUTTON_PIN);
-  if (buttonRead != lastButtonRead) {
-    lastButtonChangeMs = now;
-    lastButtonRead = buttonRead;
-  }
-  static int buttonStable = HIGH;
-  if (now - lastButtonChangeMs > BUTTON_DEBOUNCE_MS && buttonRead != buttonStable) {
-    buttonStable = buttonRead;
-    if (buttonStable == LOW) { // pressed (active low, INPUT_PULLUP)
-      ClockDisplay::nextFace();
-    }
+  // Reads LEFT/RIGHT/OK every loop() iteration (not throttled like the
+  // clock render below) so button presses feel responsive. Returns true
+  // while a menu screen is showing, in which case skip the clock render.
+  if (Menu::handle()) {
+    return;
   }
 
   if (now - lastRender >= 200) {
