@@ -63,14 +63,26 @@ const uint16_t COL_HEADING_BG = rgb565(35, 38, 46);   // neutral dark grey
 const uint16_t COL_HEADING_TXT = rgb565(210, 214, 222);
 const uint16_t COL_ITEM_TXT_DIM = rgb565(140, 145, 155);
 const uint16_t COL_HINT_TXT  = rgb565(120, 125, 135);
-const uint16_t COL_SETTINGS_ACCENT = rgb565(120, 200, 255); // WiFi/Time Zone tiles
+const uint16_t COL_SETTINGS_ACCENT = rgb565(120, 200, 255); // Time Zone continent/zone screens
 const uint16_t COL_WARN      = rgb565(255, 90, 90);
+const uint16_t COL_TILE_BORDER = rgb565(50, 54, 62);  // unselected tile outline
+
+// Vibrant per-icon colours for the top-level tiles, reusing the same
+// pink/orange/cyan family as the rainbow clock face for visual consistency
+// across the whole firmware.
+const uint16_t COL_ICON_WIFI = rgb565(0, 217, 255);   // cyan
+const uint16_t COL_ICON_TZ   = rgb565(255, 159, 28);  // orange
+const uint16_t COL_ICON_BACK = rgb565(255, 79, 163);  // pink
 
 // ---- menu state -------------------------------------------------------
 enum State { ST_CLOCK, ST_MAIN, ST_CONTINENT, ST_ZONE, ST_WIFI_CONFIRM, ST_SAVED };
 State state = ST_CLOCK;
 
-const char *const MAIN_ITEMS[2] = {"WiFi Setup", "Time Zone"};
+// Top-level menu tiles: WiFi Setup, Time Zone, Back (exits to the clock
+// face - the same thing holding OK does, but selectable directly too).
+const int MAIN_TILE_COUNT = 3;
+const char *const MAIN_LABELS[MAIN_TILE_COUNT] = {"WiFi", "Time Zone", "Back"};
+const uint16_t MAIN_COLORS[MAIN_TILE_COUNT] = {COL_ICON_WIFI, COL_ICON_TZ, COL_ICON_BACK};
 int mainIndex = 0;
 int continentIndex = 0;
 int zoneIndex = 0; // index within TZ_ZONES for the current continent
@@ -140,14 +152,79 @@ void drawScreen(const String &heading, uint16_t headingBg, uint16_t headingTxt,
 
 const char *HINT_NAV = "< > select   OK confirm   hold back";
 
+// ---- top-level menu icons -------------------------------------------
+// Drawn as filled rings + simple strokes rather than 1px outlines, so they
+// read as bold/vibrant even at this small size - no image assets, just the
+// same primitive-shape approach used everywhere else in this firmware.
+void iconRing(TFT_eSPI &tft, int cx, int cy, int r, int thickness, uint16_t color) {
+  tft.fillCircle(cx, cy, r, color);
+  tft.fillCircle(cx, cy, r - thickness, COL_BG);
+}
+
+void iconWifi(TFT_eSPI &tft, int cx, int cy, uint16_t color) {
+  int baseY = cy + 14;
+  for (int i = 0; i < 4; i++) {
+    int h = 7 + i * 5;
+    tft.fillRoundRect(cx - 22 + i * 12, baseY - h, 7, h, 2, color);
+  }
+}
+
+// A small "globe" for Time Zone: a bold ring with an equator and a prime
+// meridian through it, evoking world regions rather than a literal clock.
+void iconGlobe(TFT_eSPI &tft, int cx, int cy, uint16_t color) {
+  iconRing(tft, cx, cy, 15, 3, color);
+  tft.drawFastHLine(cx - 15, cy, 30, color);
+  tft.drawFastVLine(cx, cy - 15, 30, color);
+}
+
+// An analogue clock face for "Back" (return to the clock face).
+void iconClock(TFT_eSPI &tft, int cx, int cy, uint16_t color) {
+  iconRing(tft, cx, cy, 15, 3, color);
+  tft.drawLine(cx, cy, cx, cy - 10, color);
+  tft.drawLine(cx, cy, cx + 8, cy + 3, color);
+  tft.fillCircle(cx, cy, 2, color);
+}
+
+void drawMainTiles() {
+  TFT_eSPI &tft = ClockDisplay::rawDisplay();
+  tft.fillScreen(COL_BG);
+
+  const int tileW = 92, tileH = 100, gap = 8;
+  const int totalW = tileW * MAIN_TILE_COUNT + gap * (MAIN_TILE_COUNT - 1);
+  const int x0 = (TFT_SCREEN_WIDTH - totalW) / 2;
+  const int y0 = 14;
+
+  tft.setTextDatum(MC_DATUM);
+  for (int i = 0; i < MAIN_TILE_COUNT; i++) {
+    int x = x0 + i * (tileW + gap);
+    bool sel = (i == mainIndex);
+    uint16_t border = sel ? TFT_WHITE : COL_TILE_BORDER;
+    tft.drawRoundRect(x, y0, tileW, tileH, 12, border);
+    if (sel) tft.drawRoundRect(x + 1, y0 + 1, tileW - 2, tileH - 2, 11, border);
+
+    int cx = x + tileW / 2, cy = y0 + 36;
+    switch (i) {
+      case 0: iconWifi(tft, cx, cy, MAIN_COLORS[i]); break;
+      case 1: iconGlobe(tft, cx, cy, MAIN_COLORS[i]); break;
+      default: iconClock(tft, cx, cy, MAIN_COLORS[i]); break;
+    }
+
+    tft.setFreeFont(&FreeSansBold9pt7b);
+    tft.setTextColor(sel ? TFT_WHITE : COL_ITEM_TXT_DIM, COL_BG);
+    tft.drawString(MAIN_LABELS[i], cx, y0 + tileH - 18);
+  }
+
+  tft.setFreeFont(&FreeSansBold9pt7b);
+  tft.setTextColor(COL_HINT_TXT, COL_BG);
+  tft.drawString(HINT_NAV, TFT_SCREEN_WIDTH / 2, 154);
+  tft.setFreeFont(nullptr);
+}
+
 void render() {
   switch (state) {
-    case ST_MAIN: {
-      String pos = String(mainIndex + 1) + " / " + String((int)(sizeof(MAIN_ITEMS) / sizeof(MAIN_ITEMS[0])));
-      drawScreen("SETTINGS", COL_HEADING_BG, COL_HEADING_TXT,
-                 MAIN_ITEMS[mainIndex], COL_SETTINGS_ACCENT, pos, HINT_NAV);
+    case ST_MAIN:
+      drawMainTiles();
       break;
-    }
     case ST_CONTINENT: {
       String pos = String(continentIndex + 1) + " / " + String(TZ_CONTINENT_COUNT);
       uint16_t accent = TZ_CONTINENT_COLORS[continentIndex];
@@ -215,18 +292,21 @@ bool handle() {
       break;
 
     case ST_MAIN: {
-      const int n = sizeof(MAIN_ITEMS) / sizeof(MAIN_ITEMS[0]);
+      const int n = MAIN_TILE_COUNT;
       if (leftTap) { mainIndex = (mainIndex + n - 1) % n; dirty = true; }
       if (rightTap) { mainIndex = (mainIndex + 1) % n; dirty = true; }
       if (okLong) exitToClock();
       else if (okTap) {
         if (mainIndex == 0) {
           state = ST_WIFI_CONFIRM;
-        } else {
+          dirty = true;
+        } else if (mainIndex == 1) {
           findCurrentZone(continentIndex, zoneIndex);
           state = ST_CONTINENT;
+          dirty = true;
+        } else {
+          exitToClock(); // "Back" tile - same as holding OK
         }
-        dirty = true;
       }
       break;
     }
