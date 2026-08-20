@@ -4,6 +4,7 @@
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
 #include "BebasDigits123.h"
+#include "PhotoGoldDigits.h"
 #include "PhotoDigits.h"
 // TFT_eSPI.h (with LOAD_GFXFF enabled) already pulls in every Adafruit GFX
 // free font, including these two, via its own Fonts/GFXFF/gfxfont.h. Those
@@ -167,8 +168,9 @@ enum ClockFaceId {
   FACE_GOLD = 2,
   FACE_SPECTRUM = 3,
   FACE_CUSTOM = 4,
-  FACE_PHOTO = 5,
-  FACE_COUNT = 6
+  FACE_PHOTO_GOLD = 5,
+  FACE_PHOTO = 6,
+  FACE_COUNT = 7
 };
 int currentFace = FACE_RAINBOW_GRID;
 
@@ -266,7 +268,7 @@ void ensureCustomFaceLoaded() {
 
 const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
-  if (currentFace == FACE_GOLD) return THEME_GOLD;
+  if (currentFace == FACE_GOLD || currentFace == FACE_PHOTO_GOLD) return THEME_GOLD;
   if (currentFace == FACE_SPECTRUM || currentFace == FACE_PHOTO) return THEME_SPECTRUM;
   if (currentFace == FACE_CUSTOM) {
     static BadgeTheme customTheme;
@@ -486,17 +488,21 @@ void drawSpectrumDigitCell(int col, char ch) {
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
-// ---- Photo face -----------------------------------------------------
-// Real photographed digits (background removed, RGB565), not a font - see
-// PhotoDigits.h. Each digit is its own distinct typeface/colour (a font-
-// sampler style, one look per value) rather than one consistent font, so
-// unlike every other face this can't reuse the fixed CELL_DIGIT_W column grid:
+// ---- Photo faces ------------------------------------------------------
+// Two faces built from real photographed digits (background removed,
+// RGB565), not a font: Photo Gold (PhotoGoldDigits.h, one consistent gold
+// look, reads fine on black) and Photo (PhotoDigits.h, a font-sampler
+// style - a different typeface/colour per digit value, several of them
+// dark, so this one needs a light background instead or half the digits
+// disappear into it). Each digit has a different native size, so unlike
+// every other face these can't reuse the fixed CELL_DIGIT_W column grid:
 // laid out edge to edge at their native aspect ratio, a full row would run
 // well past this 320px screen. Every digit is instead scaled to a single
-// fixed-width slot (photoSlotW, computed below from the widest digit at
-// PHOTO_H tall) so the whole row's width - and thus its centred x position
-// - never changes between redraws; without that, the row would visibly
-// jump sideways every second as narrower/wider digits rotated through.
+// fixed-width slot (photoSlotW, computed below as the widest digit across
+// BOTH sets at PHOTO_H tall, so one shared size/layout serves either face)
+// so the whole row's width - and thus its centred x position - never
+// changes between redraws; without that, the row would visibly jump
+// sideways every second as narrower/wider digits rotated through.
 //
 // Shows all 6 digits (HH:MM:SS). At a fixed size that must never clip on
 // any possible time, that caps PHOTO_H well below the cell height (140px)
@@ -504,28 +510,43 @@ void drawSpectrumDigitCell(int col, char ch) {
 // gaps/colon widths get (tried several combinations; none clear ~59px).
 const int PHOTO_GAP = 1;       // gap between adjacent digit/colon slots
 const int PHOTO_COLON_W = 7;
-// Widest native digit (8, 141x165) sets the worst-case aspect ratio
-// (~0.855). At H=57, 6 slots * ceil(0.855*57)=49 + 2*7 (colons) +
-// 7*1 (gaps) = 294 + 14 + 7 = 315px, safely under SCR_W (320).
+// Widest native digit across both sets (Photo's "8", 141x165) sets the
+// worst-case aspect ratio (~0.855). At H=57, 6 slots * ceil(0.855*57)=49 +
+// 2*7 (colons) + 7*1 (gaps) = 294 + 14 + 7 = 315px, safely under SCR_W (320).
 const int PHOTO_H = 57;
-int photoSlotW = 0;       // widest scaled digit at PHOTO_H tall - set in begin()
+int photoSlotW = 0;       // widest scaled digit (either set) - set in begin()
 int photoRowStartX = 0;   // fixed row x so it never shifts between redraws
 int photoRowY = 0;
 
-// Scaled width of digit d (0-9) at a fixed height of PHOTO_H, preserving
-// its native aspect ratio.
-int photoScaledWidth(int d) {
-  const PhotoDigit &pd = PHOTO_DIGITS[d];
+// Which digit set/background/colon colour the current face uses. Photo
+// Gold's uniformly bright gold reads fine on black like every other face;
+// Photo's mixed set includes several dark digits (black/dark-brown/dark-
+// navy) that would be near-invisible on black, so it gets a white
+// background and dark colon dots instead.
+const PhotoDigit *activePhotoSet() {
+  return (currentFace == FACE_PHOTO_GOLD) ? PHOTO_GOLD_DIGITS : PHOTO_DIGITS;
+}
+uint16_t activePhotoBg() {
+  return (currentFace == FACE_PHOTO_GOLD) ? COL_BG : TFT_WHITE;
+}
+uint16_t activePhotoColonColor() {
+  return (currentFace == FACE_PHOTO_GOLD) ? COL_GOLD : TFT_BLACK;
+}
+
+// Scaled width of digit d (0-9) in the given set at a fixed height of
+// PHOTO_H, preserving its native aspect ratio.
+int photoScaledWidth(const PhotoDigit *set, int d) {
+  const PhotoDigit &pd = set[d];
   return (pd.w * PHOTO_H + pd.h - 1) / pd.h; // ceil
 }
 
 // Nearest-neighbour scales digit d from its native PROGMEM bitmap into
 // photoDigitSpr at (scaled width x PHOTO_H), background-filled first so
-// the unused slot width right of a narrower digit stays black.
-void drawPhotoDigitToSprite(int d) {
-  const PhotoDigit &pd = PHOTO_DIGITS[d];
-  int sw = photoScaledWidth(d);
-  photoDigitSpr.fillSprite(COL_BG);
+// the unused slot width right of a narrower digit matches the face's bg.
+void drawPhotoDigitToSprite(const PhotoDigit *set, int d, uint16_t bg) {
+  const PhotoDigit &pd = set[d];
+  int sw = photoScaledWidth(set, d);
+  photoDigitSpr.fillSprite(bg);
   for (int y = 0; y < PHOTO_H; y++) {
     int sy = (y * pd.h) / PHOTO_H;
     const uint16_t *row = pd.data + (size_t)sy * pd.w;
@@ -536,15 +557,15 @@ void drawPhotoDigitToSprite(int d) {
   }
 }
 
-void drawPhotoColon(int x, bool visible) {
-  tft.fillRect(x, photoRowY, PHOTO_COLON_W, PHOTO_H, COL_BG);
+void drawPhotoColon(int x, bool visible, uint16_t bg, uint16_t dotColor) {
+  tft.fillRect(x, photoRowY, PHOTO_COLON_W, PHOTO_H, bg);
   if (visible) {
     int cx = x + PHOTO_COLON_W / 2;
     int cy = photoRowY + PHOTO_H / 2;
     int r = max(3, PHOTO_COLON_W / 3);
     int gap = PHOTO_H / 5;
-    tft.fillSmoothCircle(cx, cy - gap, r, TFT_WHITE, COL_BG);
-    tft.fillSmoothCircle(cx, cy + gap, r, TFT_WHITE, COL_BG);
+    tft.fillSmoothCircle(cx, cy - gap, r, dotColor, bg);
+    tft.fillSmoothCircle(cx, cy + gap, r, dotColor, bg);
   }
 }
 
@@ -554,16 +575,19 @@ void drawPhotoColon(int x, bool visible) {
 // meaningful to diff per-digit; this just runs whenever any digit or the
 // colon blink state changes (see update()).
 void drawPhotoRow(const char *buf, bool colonVisible) {
-  tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, COL_BG);
+  const PhotoDigit *set = activePhotoSet();
+  uint16_t bg = activePhotoBg();
+  uint16_t colonColor = activePhotoColonColor();
+  tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, bg);
   int x = photoRowStartX;
   int idx = 0;
   for (int slot = 0; slot < 8; slot++) {
     if (slot == 2 || slot == 5) {
-      drawPhotoColon(x, colonVisible);
+      drawPhotoColon(x, colonVisible, bg, colonColor);
       x += PHOTO_COLON_W + PHOTO_GAP;
     } else {
       int d = buf[idx++] - '0';
-      drawPhotoDigitToSprite(d);
+      drawPhotoDigitToSprite(set, d, bg);
       photoDigitSpr.pushSprite(x, photoRowY);
       x += photoSlotW + PHOTO_GAP;
     }
@@ -810,7 +834,10 @@ void begin() {
   doySpr.createSprite(B_DOY.w, TOPBAR_H);
   wifiSpr.createSprite(B_WIFI.w, TOPBAR_H);
 
-  for (int d = 0; d <= 9; d++) photoSlotW = max(photoSlotW, photoScaledWidth(d));
+  for (int d = 0; d <= 9; d++) {
+    photoSlotW = max(photoSlotW, photoScaledWidth(PHOTO_GOLD_DIGITS, d));
+    photoSlotW = max(photoSlotW, photoScaledWidth(PHOTO_DIGITS, d));
+  }
   photoDigitSpr.createSprite(photoSlotW, PHOTO_H);
   int photoRowW = 6 * photoSlotW + 2 * PHOTO_COLON_W + 7 * PHOTO_GAP;
   photoRowStartX = max(0, (SCR_W - photoRowW) / 2);
@@ -905,7 +932,7 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
   // buf: H H M M S S  -> map into the 8 cells (2 colon cells in between)
   // The colon dots blink once a second (on for even seconds, off for odd).
   int colonVisible = (timeinfo.tm_sec % 2 == 0) ? 1 : 0;
-  if (currentFace == FACE_PHOTO) {
+  if (currentFace == FACE_PHOTO_GOLD || currentFace == FACE_PHOTO) {
     // Every slot's x position is fixed (see drawPhotoRow()), so there's
     // nothing to diff per-digit - just redraw the whole row when anything
     // in it changed. lastDigit[0..5] doubles as this face's HHMMSS cache
