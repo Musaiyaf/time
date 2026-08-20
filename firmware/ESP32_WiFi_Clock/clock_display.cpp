@@ -497,17 +497,16 @@ void drawSpectrumDigitCell(int col, char ch) {
 // - never changes between redraws; without that, the row would visibly
 // jump sideways every second as narrower/wider digits rotated through.
 //
-// Shows HH:MM only, not HH:MM:SS - with all 6 digits of a full HH:MM:SS,
-// the tallest a fixed-size row can ever safely be (worst case, no clipping
-// on any possible time) tops out around 56-59px no matter how tight the
-// gaps get, since it's bounded by the digits' own aspect ratio, not layout
-// choices. Dropping to 4 digits raises that ceiling to PHOTO_H below.
+// Shows all 6 digits (HH:MM:SS). At a fixed size that must never clip on
+// any possible time, that caps PHOTO_H well below the cell height (140px)
+// - it's bounded by the digits' own aspect ratio, not by how tight the
+// gaps/colon widths get (tried several combinations; none clear ~59px).
 const int PHOTO_GAP = 1;       // gap between adjacent digit/colon slots
-const int PHOTO_COLON_W = 14;
+const int PHOTO_COLON_W = 7;
 // Widest native digit (0 or 2, 97x114) sets the worst-case aspect ratio
-// (~0.851). At H=88, 4 slots * ceil(0.851*88)=75 + 14 (colon) + 4*1 (gaps)
-// = 300 + 14 + 4 = 318px, safely under SCR_W (320).
-const int PHOTO_H = 88;
+// (~0.851). At H=57, 6 slots * ceil(0.851*57)=49 + 2*7 (colons) +
+// 7*1 (gaps) = 294 + 14 + 7 = 315px, safely under SCR_W (320).
+const int PHOTO_H = 57;
 int photoSlotW = 0;       // widest scaled digit at PHOTO_H tall - set in begin()
 int photoRowStartX = 0;   // fixed row x so it never shifts between redraws
 int photoRowY = 0;
@@ -548,19 +547,17 @@ void drawPhotoGoldColon(int x, bool visible) {
   }
 }
 
-// Redraws the whole HH:MM row in one pass - unlike the other faces' per-
-// cell diffing, every slot's x position depends on the fixed photoSlotW
-// rather than that slot's own content, so there's nothing meaningful to
-// diff per-digit; this just runs whenever either digit pair or the colon
-// blink state changes (see update()). buf holds HHMMSS as usual (see
-// update()) but only its first 4 chars (HHMM) are drawn - this face shows
-// no seconds, see the PHOTO_H sizing note above.
+// Redraws the whole HH:MM:SS row in one pass - unlike the other faces'
+// per-cell diffing, every slot's x position depends on the fixed
+// photoSlotW rather than that slot's own content, so there's nothing
+// meaningful to diff per-digit; this just runs whenever any digit or the
+// colon blink state changes (see update()).
 void drawPhotoGoldRow(const char *buf, bool colonVisible) {
   tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, COL_BG);
   int x = photoRowStartX;
   int idx = 0;
-  for (int slot = 0; slot < 5; slot++) {
-    if (slot == 2) {
+  for (int slot = 0; slot < 8; slot++) {
+    if (slot == 2 || slot == 5) {
       drawPhotoGoldColon(x, colonVisible);
       x += PHOTO_COLON_W + PHOTO_GAP;
     } else {
@@ -814,7 +811,7 @@ void begin() {
 
   for (int d = 0; d <= 9; d++) photoSlotW = max(photoSlotW, photoScaledWidth(d));
   photoDigitSpr.createSprite(photoSlotW, PHOTO_H);
-  int photoRowW = 4 * photoSlotW + PHOTO_COLON_W + 4 * PHOTO_GAP;
+  int photoRowW = 6 * photoSlotW + 2 * PHOTO_COLON_W + 7 * PHOTO_GAP;
   photoRowStartX = max(0, (SCR_W - photoRowW) / 2);
   photoRowY = CLOCK_TOP + (CLOCK_H - PHOTO_H) / 2;
 
@@ -910,19 +907,16 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
   if (currentFace == FACE_PHOTO_GOLD) {
     // Every slot's x position is fixed (see drawPhotoGoldRow()), so there's
     // nothing to diff per-digit - just redraw the whole row when anything
-    // in it changed. This face shows HH:MM only (see PHOTO_H's sizing
-    // note), so only buf[0..3] (HHMM) matter here - lastDigit[0..3] doubles
-    // as this face's cache (it's fully reset to 0 on every face switch, so
-    // it never carries stale values over from the other faces' cell-
-    // indexed usage of it). The colon still blinks on the real seconds
-    // even though they're not drawn, same as a normal clock's ticking dots.
+    // in it changed. lastDigit[0..5] doubles as this face's HHMMSS cache
+    // (it's fully reset to 0 on every face switch, so it never carries
+    // stale values over from the other faces' cell-indexed usage of it).
     bool changed = (colonVisible != lastColonVisible);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 6; i++) {
       if (lastDigit[i] != buf[i]) changed = true;
     }
     if (changed) {
       drawPhotoGoldRow(buf, colonVisible);
-      for (int i = 0; i < 4; i++) lastDigit[i] = buf[i];
+      for (int i = 0; i < 6; i++) lastDigit[i] = buf[i];
       lastColonVisible = colonVisible;
     }
   } else {
