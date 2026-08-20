@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Custom Face Builder — ESP32 WiFi Clock</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #14171f;
+    --border: #262b38;
+    --text: #e6e8ee;
+    --dim: #8890a4;
+    --accent: #00e5ff;
+    --pink: #ff4fa3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 24px 16px 64px;
+  }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h1 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 12px var(--accent); }
+  p.lead { color: var(--dim); margin: 0 0 28px; font-size: 14px; line-height: 1.5; }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 18px;
+  }
+  .card h2 {
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--dim);
+    margin: 0 0 14px;
+    font-weight: 600;
+  }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: 12px; color: var(--dim); }
+  input[type="file"] {
+    color: var(--text);
+    font-size: 13px;
+  }
+  input[type="color"] {
+    width: 44px; height: 32px; padding: 0; border: 1px solid var(--border);
+    border-radius: 6px; background: none; cursor: pointer;
+  }
+  .colorfield { display: flex; align-items: center; gap: 10px; }
+  .colorfield code {
+    font-size: 12px; color: var(--text); background: #1c202b; padding: 3px 7px; border-radius: 4px;
+  }
+  #previewWrap {
+    display: flex; justify-content: center; padding: 8px 0 4px;
+    overflow-x: auto;
+  }
+  #preview {
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    image-rendering: pixelated;
+  }
+  .hint { color: var(--dim); font-size: 12px; margin-top: 10px; line-height: 1.5; }
+  .actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+  button {
+    appearance: none; border: none; border-radius: 7px; padding: 10px 16px;
+    font-size: 13px; font-weight: 600; cursor: pointer;
+    background: var(--accent); color: #00232a;
+  }
+  button:disabled { background: #2a2f3b; color: var(--dim); cursor: not-allowed; }
+  button.secondary { background: #1c202b; color: var(--text); border: 1px solid var(--border); }
+  ol { color: var(--dim); font-size: 13px; line-height: 1.7; padding-left: 20px; margin: 0; }
+  ol code, p code { background: #1c202b; color: var(--text); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+  .status { font-size: 13px; margin-top: 12px; min-height: 18px; }
+  .status.ok { color: #4ade80; }
+  .status.err { color: #f87171; }
+  footer { text-align: center; color: var(--dim); font-size: 12px; margin-top: 30px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1><span class="dot"></span>Custom Face Builder</h1>
+  <p class="lead">
+    Turns an image into the <code>bg.bin</code> + <code>face.cfg</code> pair the clock's
+    Custom Face reads from an SD card — entirely in your browser, no install needed.
+    Same output as <code>tools/make_custom_face.py</code>.
+  </p>
+
+  <div class="card">
+    <h2>1. Choose an image</h2>
+    <input type="file" id="fileInput" accept="image/*">
+    <p class="hint">
+      Best results near a 320:140 (~2.3:1) wide/short aspect ratio — this is the clock's
+      digit strip only, not the whole screen, so it gets stretched to fit if the shape is very different.
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>2. Colours</h2>
+    <div class="row">
+      <div class="field">
+        <label>Digit colour</label>
+        <div class="colorfield">
+          <input type="color" id="digitColor" value="#00ffff">
+          <code id="digitColorHex">#00FFFF</code>
+        </div>
+      </div>
+      <div class="field">
+        <label>Accent colour (status badges)</label>
+        <div class="colorfield">
+          <input type="color" id="accentColor" value="#ff4fa3">
+          <code id="accentColorHex">#FF4FA3</code>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>3. Preview</h2>
+    <div id="previewWrap">
+      <canvas id="preview" width="640" height="340"></canvas>
+    </div>
+    <p class="hint">Rough approximation of the real display — actual fonts/badge layout differ slightly.</p>
+  </div>
+
+  <div class="card">
+    <h2>4. Download</h2>
+    <div class="actions">
+      <button id="downloadBg" disabled>Download bg.bin</button>
+      <button id="downloadCfg" class="secondary" disabled>Download face.cfg</button>
+    </div>
+    <div class="status" id="status"></div>
+    <p class="hint" style="margin-top:16px;">
+      On the SD card, place both files at:
+    </p>
+    <ol>
+      <li><code>/faces/custom/bg.bin</code></li>
+      <li><code>/faces/custom/face.cfg</code></li>
+    </ol>
+    <p class="hint">
+      Insert the card, power on the clock, and LEFT/RIGHT-cycle the clock face to Custom
+      (rainbow grid → retro LED → big cyan → <b>Custom</b>). No card, or nothing at that
+      path, and it just falls back to plain white digits on black.
+    </p>
+  </div>
+
+  <footer>ESP32 WiFi Clock · Custom Face Builder</footer>
+</div>
+
+<script>
+const FACE_W = 320, FACE_H = 140;
+const PREVIEW_SCALE = 2;
+
+const fileInput = document.getElementById('fileInput');
+const digitColorInput = document.getElementById('digitColor');
+const accentColorInput = document.getElementById('accentColor');
+const digitColorHex = document.getElementById('digitColorHex');
+const accentColorHex = document.getElementById('accentColorHex');
+const preview = document.getElementById('preview');
+const pctx = preview.getContext('2d');
+const downloadBgBtn = document.getElementById('downloadBg');
+const downloadCfgBtn = document.getElementById('downloadCfg');
+const statusEl = document.getElementById('status');
+
+// Offscreen canvas holding the image resized to exactly FACE_W x FACE_H -
+// this pixel data is what actually gets converted to bg.bin.
+const bgCanvas = document.createElement('canvas');
+bgCanvas.width = FACE_W;
+bgCanvas.height = FACE_H;
+const bgCtx = bgCanvas.getContext('2d', { willReadFrequently: true });
+
+let hasImage = false;
+
+function setStatus(msg, kind) {
+  statusEl.textContent = msg;
+  statusEl.className = 'status' + (kind ? ' ' + kind : '');
+}
+
+function drawTopbarPreview(ctx, x, y, w, h, accent) {
+  // Rough stand-in for the real status badge row: a few dark pills with
+  // accent-coloured sample text, just enough to judge contrast.
+  ctx.fillStyle = '#000';
+  ctx.fillRect(x, y, w, h);
+  const labels = ['2026', '01-01', 'THU', 'DAY 001', ''];
+  const widths = [0.16, 0.23, 0.22, 0.23, 0.08];
+  let cx = x + 3;
+  ctx.font = `bold ${Math.floor(h * 0.5)}px sans-serif`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'center';
+  for (let i = 0; i < labels.length; i++) {
+    const pw = w * widths[i] - 4;
+    ctx.fillStyle = '#181b22';
+    roundRect(ctx, cx, y + 3, pw, h - 6, 6);
+    ctx.fill();
+    if (labels[i]) {
+      ctx.fillStyle = accent;
+      ctx.fillText(labels[i], cx + pw / 2, y + h / 2 + 1);
+    }
+    cx += pw + 4;
+  }
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function renderPreview() {
+  const w = FACE_W * PREVIEW_SCALE;
+  const topbarH = 30 * PREVIEW_SCALE;
+  const h = FACE_H * PREVIEW_SCALE + topbarH;
+  preview.width = w;
+  preview.height = h;
+
+  pctx.fillStyle = '#000';
+  pctx.fillRect(0, 0, w, h);
+
+  drawTopbarPreview(pctx, 0, 0, w, topbarH, accentColorInput.value);
+
+  if (hasImage) {
+    pctx.drawImage(bgCanvas, 0, topbarH, w, FACE_H * PREVIEW_SCALE);
+  }
+
+  // Sample digits, roughly where the real clock puts them.
+  pctx.fillStyle = digitColorInput.value;
+  pctx.font = `bold ${Math.floor(FACE_H * PREVIEW_SCALE * 0.55)}px "Arial Narrow", sans-serif`;
+  pctx.textAlign = 'center';
+  pctx.textBaseline = 'middle';
+  pctx.fillText('12:34:56', w / 2, topbarH + (FACE_H * PREVIEW_SCALE) / 2 + 2);
+}
+
+function hex(v) { return v.toUpperCase(); }
+
+digitColorInput.addEventListener('input', () => {
+  digitColorHex.textContent = hex(digitColorInput.value);
+  renderPreview();
+});
+accentColorInput.addEventListener('input', () => {
+  accentColorHex.textContent = hex(accentColorInput.value);
+  renderPreview();
+});
+
+fileInput.addEventListener('change', () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = () => {
+    bgCtx.clearRect(0, 0, FACE_W, FACE_H);
+    bgCtx.drawImage(img, 0, 0, FACE_W, FACE_H); // stretch to exactly FACE_W x FACE_H
+    hasImage = true;
+    renderPreview();
+    downloadBgBtn.disabled = false;
+    downloadCfgBtn.disabled = false;
+    setStatus(`Loaded ${file.name} (${img.width}x${img.height} -> ${FACE_W}x${FACE_H})`, 'ok');
+  };
+  img.onerror = () => setStatus('Could not load that image.', 'err');
+  img.src = URL.createObjectURL(file);
+});
+
+function rgb565(r, g, b) {
+  // Same bit packing the firmware uses (menu.cpp's rgb565(), TFT_eSPI's
+  // color565()) - must match exactly or colours come out wrong on device.
+  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
+function buildBgBin() {
+  const imgData = bgCtx.getImageData(0, 0, FACE_W, FACE_H).data;
+  const out = new Uint8Array(FACE_W * FACE_H * 2);
+  let o = 0;
+  for (let i = 0; i < imgData.length; i += 4) {
+    const val = rgb565(imgData[i], imgData[i + 1], imgData[i + 2]);
+    // Little-endian: matches how the ESP32 (a little-endian CPU) lays a
+    // uint16_t out in memory, which is what the firmware reads this
+    // file straight into.
+    out[o++] = val & 0xFF;
+    out[o++] = (val >> 8) & 0xFF;
+  }
+  return out;
+}
+
+function buildFaceCfg() {
+  return "# Custom Face config - key=value, one per line, '#' comments.\n" +
+         `digit_color=${hex(digitColorInput.value)}\n` +
+         `accent_color=${hex(accentColorInput.value)}\n`;
+}
+
+function download(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+downloadBgBtn.addEventListener('click', () => {
+  if (!hasImage) return;
+  download('bg.bin', new Blob([buildBgBin()], { type: 'application/octet-stream' }));
+  setStatus('Downloaded bg.bin - now put it at /faces/custom/bg.bin on the SD card.', 'ok');
+});
+
+downloadCfgBtn.addEventListener('click', () => {
+  download('face.cfg', new Blob([buildFaceCfg()], { type: 'text/plain' }));
+  setStatus('Downloaded face.cfg - now put it at /faces/custom/face.cfg on the SD card.', 'ok');
+});
+
+renderPreview();
+</script>
+</body>
+</html>

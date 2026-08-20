@@ -115,7 +115,8 @@ firmware/ESP32_WiFi_Clock/
   rtc_backup.h/.cpp        - optional DS3231 backup RTC over I2C (raw Wire, no library)
   sd_card.h/.cpp           - optional SD card module (SD/SPI, ships with the ESP32 core)
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
-tools/make_custom_face.py    - builds a Custom Face package for the SD card
+tools/make_custom_face.py    - CLI: builds a Custom Face package for the SD card
+tools/make_custom_face.html  - same, as a no-install, in-browser tool
 .github/workflows/build-firmware.yml - CI build producing a flashable .bin
 ```
 
@@ -225,15 +226,20 @@ Put two files at `/faces/custom/` on the [SD card](#optional-sd-card-browser):
   accent_color=#FF4FA3
   ```
 
-`tools/make_custom_face.py` builds both from any image:
+Two ways to build both from any image - same output either way:
 
-```
-pip install Pillow
-python3 tools/make_custom_face.py my_background.png --out out \
-    --digit-color "#00FFFF" --accent-color "#FF4FA3"
-```
+- **`tools/make_custom_face.html`** — no install: open it directly in a
+  browser (double-click the file), pick an image and colours, see a live
+  preview, and click to download `bg.bin`/`face.cfg`. Runs entirely
+  client-side, nothing is uploaded anywhere.
+- **`tools/make_custom_face.py`** — for scripting/automation:
+  ```
+  pip install Pillow
+  python3 tools/make_custom_face.py my_background.png --out out \
+      --digit-color "#00FFFF" --accent-color "#FF4FA3"
+  ```
 
-Then copy `out/bg.bin` and `out/face.cfg` onto the SD card as
+Then copy `bg.bin` and `face.cfg` onto the SD card as
 `/faces/custom/bg.bin` and `/faces/custom/face.cfg`, and cycle (LEFT/RIGHT)
 to the Custom face on the clock. No SD card, or nothing at that path, and
 it just falls back to plain white digits on black - never a blank or
