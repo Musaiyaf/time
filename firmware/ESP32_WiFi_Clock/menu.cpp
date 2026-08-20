@@ -87,13 +87,15 @@ const uint16_t COL_TILE_BORDER = rgb565(50, 54, 62);  // unselected tile outline
 const uint16_t COL_ICON_WIFI = rgb565(0, 217, 255);   // cyan
 const uint16_t COL_ICON_TZ   = rgb565(255, 159, 28);  // orange
 const uint16_t COL_ICON_BACK = rgb565(255, 79, 163);  // pink
+const uint16_t COL_ICON_DATETIME = rgb565(140, 255, 150); // mint green
 
 // ---- menu state -------------------------------------------------------
 // CLOCK -> MAIN (2 icon tiles: Settings, Back) -> SETTINGS (text list:
-// WiFi, Time Zone, About) -> CONTINENT -> ZONE, or -> ABOUT. WiFi doesn't
-// get its own state - selecting it runs the blocking runWifiPicker() flow
-// (scan -> pick network -> type password -> connect) and returns straight
-// back to SETTINGS.
+// WiFi, Time Zone, Date/Time, About) -> CONTINENT -> ZONE, or -> ABOUT.
+// WiFi and Date/Time don't get their own states - selecting them runs the
+// blocking runWifiPicker() (scan -> pick network -> type password ->
+// connect) or runDateTimeSetter() flow and returns straight back to
+// SETTINGS.
 enum State { ST_CLOCK, ST_MAIN, ST_SETTINGS, ST_CONTINENT, ST_ZONE, ST_ABOUT, ST_SAVED };
 State state = ST_CLOCK;
 
@@ -102,9 +104,9 @@ const char *const MAIN_LABELS[MAIN_TILE_COUNT] = {"Settings", "Back"};
 const uint16_t MAIN_COLORS[MAIN_TILE_COUNT] = {COL_SETTINGS_ACCENT, COL_ICON_BACK};
 int mainIndex = 0;
 
-const int SETTINGS_COUNT = 3;
-const char *const SETTINGS_LABELS[SETTINGS_COUNT] = {"WiFi", "Time Zone", "About"};
-const uint16_t SETTINGS_COLORS[SETTINGS_COUNT] = {COL_ICON_WIFI, COL_ICON_TZ, COL_SETTINGS_ACCENT};
+const int SETTINGS_COUNT = 4;
+const char *const SETTINGS_LABELS[SETTINGS_COUNT] = {"WiFi", "Time Zone", "Date/Time", "About"};
+const uint16_t SETTINGS_COLORS[SETTINGS_COUNT] = {COL_ICON_WIFI, COL_ICON_TZ, COL_ICON_DATETIME, COL_SETTINGS_ACCENT};
 int settingsIndex = 0;
 
 int continentIndex = 0;
@@ -262,10 +264,11 @@ void render() {
       break;
     }
     case ST_ABOUT: {
-      String ip = WiFi.localIP().toString();
+      bool up = WiFi.status() == WL_CONNECTED;
+      String item = up ? WiFi.localIP().toString() : "Offline";
+      String position = up ? String(MDNS_HOSTNAME) + ".local" : "No WiFi connection";
       drawScreen("ABOUT", COL_HEADING_BG, COL_HEADING_TXT,
-                 ip, COL_SETTINGS_ACCENT, String(MDNS_HOSTNAME) + ".local",
-                 "OK or hold: back");
+                 item, COL_SETTINGS_ACCENT, position, "OK or hold: back");
       break;
     }
     case ST_SAVED: {
@@ -366,6 +369,100 @@ bool runPasswordEntry(const String &ssid, String &outPassword) {
 
 const int WIFI_MAX_NETWORKS = 30;
 
+// ---- Date/Time setter ------------------------------------------------
+// Sets the clock by hand, one field at a time (Year -> Month -> Day ->
+// Hour -> Minute), the same carousel interaction as everywhere else:
+// LEFT/RIGHT changes the highlighted field's value, a tap of OK moves to
+// the next one. Confirming Minute applies the new time immediately;
+// holding OK at any point cancels without changing anything. This is how
+// Manual (offline) mode's placeholder clock gets corrected, and also
+// works anytime to nudge the time while connected.
+const char *const DT_MONTH_NAMES[12] = {
+    "January", "February", "March",     "April",   "May",      "June",
+    "July",    "August",   "September", "October", "November", "December"};
+
+int daysInMonth(int year, int month) {
+  static const int base[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if (month == 2) {
+    bool leap = (year % 4 == 0 && (year % 100 != 0 || year % 400 == 0));
+    return leap ? 29 : 28;
+  }
+  return base[month - 1];
+}
+
+int wrapValue(int v, int lo, int hi) {
+  int range = hi - lo + 1;
+  return lo + ((v - lo) % range + range) % range;
+}
+
+String pad2(int v) {
+  String s = String(v);
+  return s.length() < 2 ? "0" + s : s;
+}
+
+void runDateTimeSetter() {
+  struct tm now;
+  bool haveNow = getLocalTime(&now, 200);
+  int year = haveNow ? now.tm_year + 1900 : 2026;
+  int month = haveNow ? now.tm_mon + 1 : 1;
+  int day = haveNow ? now.tm_mday : 1;
+  int hour = haveNow ? now.tm_hour : 0;
+  int minute = haveNow ? now.tm_min : 0;
+
+  enum Field { F_YEAR, F_MONTH, F_DAY, F_HOUR, F_MINUTE, F_COUNT };
+  const char *const FIELD_NAMES[F_COUNT] = {"YEAR", "MONTH", "DAY", "HOUR", "MINUTE"};
+  int field = F_YEAR;
+  bool dirtyLocal = true;
+
+  while (true) {
+    bool lt, ll, rt, rl, ot, ol;
+    btnLeft.poll(lt, ll);
+    btnRight.poll(rt, rl);
+    btnOk.poll(ot, ol);
+
+    if (ol) return; // hold OK: cancel, discard changes
+
+    day = min(day, daysInMonth(year, month));
+
+    if (lt || rt) {
+      int delta = rt ? 1 : -1;
+      switch (field) {
+        case F_YEAR:   year = wrapValue(year + delta, 2000, 2099); break;
+        case F_MONTH:  month = wrapValue(month + delta, 1, 12); break;
+        case F_DAY:    day = wrapValue(day + delta, 1, daysInMonth(year, month)); break;
+        case F_HOUR:   hour = wrapValue(hour + delta, 0, 23); break;
+        case F_MINUTE: minute = wrapValue(minute + delta, 0, 59); break;
+      }
+      dirtyLocal = true;
+    }
+
+    if (ot) {
+      if (field == F_MINUTE) {
+        WifiManager::setManualDateTime(year, month, day, hour, minute);
+        return;
+      }
+      field++;
+      dirtyLocal = true;
+    }
+
+    if (dirtyLocal) {
+      String valueText;
+      if (field == F_YEAR) valueText = String(year);
+      else if (field == F_MONTH) valueText = DT_MONTH_NAMES[month - 1];
+      else if (field == F_DAY) valueText = String(day);
+      else if (field == F_HOUR) valueText = pad2(hour);
+      else valueText = pad2(minute);
+
+      String preview = String(year) + "-" + pad2(month) + "-" + pad2(day) +
+                        "  " + pad2(hour) + ":" + pad2(minute);
+      drawScreen(String("SET ") + FIELD_NAMES[field], COL_HEADING_BG, COL_HEADING_TXT,
+                 valueText, COL_ICON_DATETIME, preview, "< > change   OK next   hold cancel");
+      dirtyLocal = false;
+    }
+    delay(5);
+  }
+}
+
 } // namespace
 
 namespace Menu {
@@ -420,6 +517,7 @@ bool runWifiPicker() {
       if (ok) {
         WifiManager::saveCredentials(ssids[idx], pass);
         WifiManager::startMDNS(); // IP likely changed - re-announce it
+        WifiManager::syncTime();  // get real time over NTP on this network
         drawScreen("WIFI SETUP", COL_HEADING_BG, COL_HEADING_TXT, "Connected!", COL_SETTINGS_ACCENT, ssids[idx], "");
         delay(1200);
         return true;
@@ -434,6 +532,28 @@ bool runWifiPicker() {
       String label = ssids[idx] + (secured[idx] ? "  [locked]" : "  [open]");
       String pos = String(idx + 1) + " / " + String(count);
       drawScreen("WIFI NETWORKS", COL_HEADING_BG, COL_HEADING_TXT, label, COL_SETTINGS_ACCENT, pos, HINT_NAV);
+      dirtyLocal = false;
+    }
+    delay(5);
+  }
+}
+
+bool askWifiOrManual() {
+  const char *const LABELS[2] = {"Try WiFi Again", "Manual Mode (offline)"};
+  int idx = 0;
+  bool dirtyLocal = true;
+  while (true) {
+    bool lt, ll, rt, rl, ot, ol;
+    btnLeft.poll(lt, ll);
+    btnRight.poll(rt, rl);
+    btnOk.poll(ot, ol);
+
+    if (lt || rt) { idx = 1 - idx; dirtyLocal = true; }
+    if (ot || ol) return idx == 1;
+
+    if (dirtyLocal) {
+      drawScreen("NO WIFI CONNECTION", COL_WARN, COL_BG, LABELS[idx], COL_SETTINGS_ACCENT,
+                 "", "< > choose   OK confirm");
       dirtyLocal = false;
     }
     delay(5);
@@ -482,6 +602,9 @@ bool handle() {
         } else if (settingsIndex == 1) {
           findCurrentZone(continentIndex, zoneIndex);
           state = ST_CONTINENT;
+          dirty = true;
+        } else if (settingsIndex == 2) {
+          runDateTimeSetter(); // blocking; redraws Settings once it's done
           dirty = true;
         } else {
           state = ST_ABOUT;

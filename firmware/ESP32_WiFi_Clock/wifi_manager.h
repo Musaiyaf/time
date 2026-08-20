@@ -33,4 +33,16 @@ String getAPIP();
 // Applies the saved TZ/NTP settings and starts the SNTP client.
 void syncTime();
 
+// Offline fallback when there's no WiFi to connect to: sets the system
+// clock to 00:00:00 on 1 January of the firmware's build year (a
+// placeholder - correct it with setManualDateTime()/the Settings menu)
+// and leaves the time zone at UTC, so whatever's set is exactly what's
+// displayed. No network, no NTP.
+void enterManualMode();
+
+// Directly sets the system clock to the given date/time (seconds are
+// reset to 0), interpreted in whatever time zone is currently active so
+// it matches what's on screen. Used by the on-device Date/Time setter.
+void setManualDateTime(int year, int month, int day, int hour, int minute);
+
 } // namespace WifiManager

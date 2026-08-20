@@ -4,11 +4,29 @@
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <time.h>
+#include <sys/time.h>
 
 namespace {
 Preferences prefs;
 String apName;
 const char *NVS_NAMESPACE = "clockcfg";
+
+// Sets the system clock directly to the given wall-clock date/time,
+// interpreted under whatever TZ is currently active (UTC unless
+// configTzTime()/syncTime() has run this session).
+void applySystemTime(int year, int month, int day, int hour, int minute) {
+  struct tm t = {};
+  t.tm_year = year - 1900;
+  t.tm_mon = month - 1;
+  t.tm_mday = day;
+  t.tm_hour = hour;
+  t.tm_min = minute;
+  t.tm_sec = 0;
+  t.tm_isdst = -1;
+  time_t epoch = mktime(&t);
+  struct timeval tv = {epoch, 0};
+  settimeofday(&tv, nullptr);
+}
 } // namespace
 
 namespace WifiManager {
@@ -109,6 +127,19 @@ void syncTime() {
   String tz, ntp1, ntp2;
   loadTimeConfig(tz, ntp1, ntp2);
   configTzTime(tz.c_str(), ntp1.c_str(), ntp2.c_str(), FALLBACK_NTP_SERVER3);
+}
+
+void enterManualMode() {
+  setenv("TZ", "UTC0", 1);
+  tzset();
+  // __DATE__ is always "Mmm dd yyyy" - the year is its last 4 characters.
+  const char *buildDate = __DATE__;
+  int year = atoi(buildDate + strlen(buildDate) - 4);
+  applySystemTime(year, 1, 1, 0, 0);
+}
+
+void setManualDateTime(int year, int month, int day, int hour, int minute) {
+  applySystemTime(year, month, day, hour, minute);
 }
 
 } // namespace WifiManager

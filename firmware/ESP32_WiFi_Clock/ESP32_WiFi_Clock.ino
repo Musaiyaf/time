@@ -1,19 +1,19 @@
 // ESP32-S3 (N16R8) + 1.9" ST7789 320x170 WiFi grid clock.
 //
 // - Connects to WiFi using credentials saved in NVS.
-// - If none are saved (or the saved network can't be reached), starts a
-//   "ESP32-Clock-Setup-XXXX" Access Point with a captive setup page:
-//   scan/pick a network (or type one manually), enter the password, and
-//   optionally a POSIX time zone + NTP servers. Saving reboots the clock,
-//   which then connects and syncs time over NTP.
+// - If there's no WiFi to connect to (none saved, or the saved network
+//   can't be reached), asks: try the on-device scan/pick flow again, or
+//   go into Manual Mode - fully offline, clock starts at 00:00:00 on 1
+//   January (of the firmware's build year) and is corrected by hand from
+//   the Settings menu's Date/Time item.
 // - Hold the OK button (GPIO0/BOOT) for 3s at power-up to wipe saved WiFi
-//   settings and return to setup mode.
+//   settings and force that same "no WiFi" prompt on the next boot.
 // - While the clock is running: LEFT/RIGHT tap cycles clock faces; holding
-//   OK opens an on-device Settings menu (WiFi, Time Zone, About) navigated
-//   with the same three buttons - see menu.h/menu.cpp. WiFi there scans,
-//   lets you pick a network and type its password on an on-screen
-//   keyboard, then connects - the same flow used automatically at boot if
-//   the saved network can't be reached.
+//   OK opens an on-device Settings menu (WiFi, Time Zone, Date/Time,
+//   About) navigated with the same three buttons - see menu.h/menu.cpp.
+//   WiFi there scans, lets you pick a network and type its password on an
+//   on-screen keyboard, then connects (this also gets you out of Manual
+//   Mode, and re-syncs the real time over NTP once connected).
 //
 // Board settings (Arduino IDE / arduino-cli):
 //   Board: "ESP32S3 Dev Module"
@@ -38,8 +38,28 @@
 WebServer server(80);
 DNSServer dnsServer;
 
-bool staMode = false; // true = connected as a WiFi client, false = setup AP
+bool staMode = false;    // true = connected as a WiFi client
+bool manualMode = false; // true = offline, running off the local clock only
+bool portalStarted = false;
 unsigned long staConnectedAt = 0;
+
+// Shared by the initial connect in setup() and by picking up a fresh
+// connection made later through Settings > WiFi (including getting out of
+// Manual Mode) - see the WiFi.status() check in loop().
+void beginConnectedMode() {
+  staMode = true;
+  manualMode = false;
+  staConnectedAt = millis();
+  WifiManager::startMDNS();
+  WifiManager::syncTime();
+  if (!portalStarted) {
+    // Start the portal immediately (not gated on NTP) so the clock's IP is
+    // reachable - e.g. to check status or change WiFi/time zone - even if
+    // NTP is slow or blocked on this network.
+    WebPortal::begin(&server, &dnsServer, false);
+    portalStarted = true;
+  }
+}
 
 void setup() {
   Serial.begin(115200);
@@ -77,38 +97,48 @@ void setup() {
     connected = WifiManager::connectSTA(ssid, pass, WIFI_CONNECT_TIMEOUT_MS);
   }
 
-  // Saved network unreachable (moved router, changed password, out of
-  // range, ...): offer the same on-device scan/pick/connect flow used from
-  // the Settings menu, before falling all the way back to AP setup mode.
-  if (!connected && haveCreds) {
-    ClockDisplay::showBootMessage("Couldn't connect", "Pick a WiFi network...");
-    delay(1200);
-    connected = Menu::runWifiPicker();
+  // No working WiFi (none saved, or the saved network couldn't be
+  // reached): let the user keep retrying the on-device scan/pick flow, or
+  // go fully offline in Manual Mode instead of forcing a connection.
+  while (!connected && !manualMode) {
+    if (Menu::askWifiOrManual()) {
+      manualMode = true;
+    } else {
+      ClockDisplay::showBootMessage("Pick a WiFi network...", "");
+      connected = Menu::runWifiPicker();
+    }
   }
 
   if (connected) {
-    staMode = true;
-    staConnectedAt = millis();
     ClockDisplay::showBootMessage("Connected!", "Waiting for time sync...");
-    WifiManager::startMDNS();
-    WifiManager::syncTime();
-    // Start the portal immediately (not gated on NTP) so the clock's IP is
-    // reachable - e.g. to check status or change WiFi/time zone - even if
-    // NTP is slow or blocked on this network.
-    WebPortal::begin(&server, &dnsServer, false);
+    beginConnectedMode();
   } else {
-    staMode = false;
-    WifiManager::startAP();
-    WebPortal::begin(&server, &dnsServer, true);
-    ClockDisplay::showSetupScreen(WifiManager::getAPName(), WifiManager::getAPIP());
+    WifiManager::enterManualMode();
+    ClockDisplay::showBootMessage("Manual mode (offline)", "Set date/time in Settings");
+    delay(1500);
   }
 }
 
 void loop() {
-  WebPortal::handle();
+  if (staMode) {
+    WebPortal::handle();
+  }
 
-  if (!staMode) {
-    return; // sitting in setup mode; the portal handles everything
+  // Reads LEFT/RIGHT/OK every loop() iteration (not throttled like the
+  // clock render below) so button presses feel responsive. Returns true
+  // while a menu screen is showing, in which case skip the clock render.
+  // Any of its blocking sub-flows (like the WiFi picker) run to completion
+  // inside this single call, so WiFi.status() below is already current.
+  bool menuOwnsScreen = Menu::handle();
+
+  // Picks up a network connected mid-session through Settings > WiFi -
+  // including getting out of Manual Mode - without needing a reboot.
+  if (!staMode && WiFi.status() == WL_CONNECTED) {
+    beginConnectedMode();
+  }
+
+  if (menuOwnsScreen) {
+    return;
   }
 
   static unsigned long lastWifiCheck = 0;
@@ -117,16 +147,9 @@ void loop() {
   static bool timeEverSynced = false;
   unsigned long now = millis();
 
-  if (WiFi.status() != WL_CONNECTED && now - lastWifiCheck > 15000) {
+  if (staMode && WiFi.status() != WL_CONNECTED && now - lastWifiCheck > 15000) {
     lastWifiCheck = now;
     WiFi.reconnect();
-  }
-
-  // Reads LEFT/RIGHT/OK every loop() iteration (not throttled like the
-  // clock render below) so button presses feel responsive. Returns true
-  // while a menu screen is showing, in which case skip the clock render.
-  if (Menu::handle()) {
-    return;
   }
 
   if (now - lastRender >= 200) {
@@ -135,9 +158,13 @@ void loop() {
     bool timeValid = getLocalTime(&timeinfo, 5);
 
     if (timeValid) {
+      // In Manual Mode this is the offline placeholder/hand-set clock, not
+      // NTP time - still valid as far as getLocalTime() is concerned, so
+      // it renders the same way, just with the WiFi badge showing off.
       timeEverSynced = true;
-      ClockDisplay::update(timeinfo, true, WiFi.status() == WL_CONNECTED, WiFi.RSSI());
-    } else if (!timeEverSynced && now - lastWaitMsg >= 1000) {
+      bool wifiUp = staMode && WiFi.status() == WL_CONNECTED;
+      ClockDisplay::update(timeinfo, true, wifiUp, wifiUp ? WiFi.RSSI() : 0);
+    } else if (staMode && !timeEverSynced && now - lastWaitMsg >= 1000) {
       // NTP hasn't landed yet (slow or blocked on this network) - keep the
       // screen alive with live status instead of freezing on "Syncing
       // time..." forever, so it's obvious the device is still working.

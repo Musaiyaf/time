@@ -5,11 +5,13 @@ display**, styled after a "grid clock" theme: a row of colored info badges
 (date / weekday / day-of-year / WiFi signal) above a large grid of digit
 cells showing `HH:MM:SS`.
 
-WiFi is configured entirely from a phone or laptop — no hardcoded SSID in
-the firmware. On first boot (or whenever it can't connect) the clock opens
-a setup Access Point with a captive web page: scan for nearby networks (or
-type one in manually), enter the password, optionally adjust the time zone
-and NTP servers, and save. The clock reboots, connects, and syncs the time.
+WiFi is configured entirely on the device — no hardcoded SSID in the
+firmware, no phone or laptop required. On first boot (or whenever it can't
+connect) the clock scans for nearby networks and lets you pick one and type
+its password right on the display. If there's no WiFi to connect to, you
+can keep retrying or drop into **Manual Mode**: a fully offline clock,
+starting at `00:00:00` on 1 January, that you set by hand from the
+on-device menu.
 
 > The reference photo this is styled after uses Chinese weekday/lunar-date
 > labels rendered with a custom LVGL build. This firmware reproduces the
@@ -55,8 +57,9 @@ firmware uses `INPUT_PULLUP`, so no external resistor is needed):
 
 LEFT/RIGHT cycle clock faces; holding OK opens the on-device settings menu
 (see [Using the clock](#using-the-clock)). Holding OK for 3 seconds right
-after power-up still does the older "wipe saved WiFi and force setup mode"
-gesture. Change `BTN_LEFT_PIN`/`BTN_RIGHT_PIN`/`BTN_OK_PIN` in
+after power-up wipes any saved WiFi credentials, so the next boot starts
+fresh with the "no WiFi" try-again-or-Manual-Mode prompt. Change
+`BTN_LEFT_PIN`/`BTN_RIGHT_PIN`/`BTN_OK_PIN` in
 `firmware/ESP32_WiFi_Clock/config.h` if you wire them to different GPIOs.
 
 ## Firmware layout
@@ -69,7 +72,7 @@ firmware/ESP32_WiFi_Clock/
   web_portal.h/.cpp       - the setup webserver (scan/save/reset routes)
   webpage_html.h          - the self-contained HTML/CSS/JS setup page
   clock_display.h/.cpp    - TFT_eSPI rendering of the clock theme
-  menu.h/.cpp             - on-device settings menu (WiFi, Time Zone, About)
+  menu.h/.cpp             - on-device settings menu (WiFi, Time Zone, Date/Time, About)
   tz_database.h           - ~430 IANA zones grouped by continent, for menu.cpp
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
 .github/workflows/build-firmware.yml - CI build producing a flashable .bin
@@ -140,16 +143,14 @@ crash or reset.
 
 ## Using the clock
 
-**First boot / no saved WiFi:** the display shows "WiFi Setup" with an
-Access Point name and IP address. Connect a phone or laptop to that
-`ESP32-Clock-Setup-XXXX` network; a setup page should pop up automatically
-(captive portal), or open `http://192.168.4.1` manually. Tap a network from
-the scanned list (or type one under "SSID" for hidden networks), enter the
-password, type your city/country into the **Time zone** search box and pick
-it from the suggestions (this covers ~430 IANA zones — e.g. "Asia/Kuala_Lumpur",
-"America/New_York", "Europe/London" — and fills in the correct POSIX string,
-including DST rules, automatically), then **Save & Connect**. The clock
-reboots and connects.
+**First boot / no saved WiFi:** the clock scans for nearby networks and
+shows them on the display (LEFT/RIGHT to browse). Tap OK on yours; if it's
+locked, type the password on the on-screen keyboard, then it connects and
+saves the credentials. If it can't find or connect to anything, it asks
+whether to **try again** or drop into **Manual Mode** (fully offline - see
+below); "try again" re-scans as many times as you like. Once connected, the
+clock syncs the time over NTP automatically, using the UTC time zone by
+default - set the real one afterwards from **Settings → Time Zone**.
 
 **Changing WiFi or time zone later:** the easiest way is the on-device menu
 below (hold OK → **Settings** → **WiFi** or **Time Zone**) — no phone
@@ -180,17 +181,31 @@ level). Selecting **Settings** opens a plain-text list with three items:
   keyboard appears (LEFT/RIGHT cycles through a letter/digit/symbol at a
   time, OK types the highlighted character, and DELETE/CONNECT/CANCEL sit
   at the end of the same carousel). It then connects and, on success, saves
-  the new credentials to NVS — no reboot needed. This same scan-and-pick
-  flow runs automatically at boot if the previously-saved network can't be
-  reached, instead of dropping straight into AP setup mode.
+  the new credentials to NVS, re-syncs the time over NTP, and re-announces
+  mDNS — no reboot needed. This is also how you get out of **Manual Mode**:
+  connecting successfully here switches the clock over immediately.
 - **Time Zone** — pick a region (Africa, America, Asia, Europe, ...), then
   a specific zone within it; the picker opens on whichever zone is
   currently active. Covers the same ~430 IANA zones as the web page's time
   zone search box, colour-coded by region. Confirming applies the new POSIX
   TZ string immediately (saved to NVS, and the clock re-syncs against it)
   — no reboot needed.
+- **Date/Time** — sets the clock by hand, one field at a time (Year, Month,
+  Day, Hour, Minute): LEFT/RIGHT changes the highlighted field, OK confirms
+  it and moves to the next, and confirming Minute applies the change right
+  away (holding OK at any point cancels instead). This is how you correct
+  **Manual Mode**'s placeholder clock, or nudge the time by hand any time.
 - **About** — shows the clock's current IP address and its mDNS hostname
-  (`esp32-clock.local`), the two ways to reach the web setup page.
+  (`esp32-clock.local`), the two ways to reach the web setup page, or
+  "Offline" while there's no WiFi connection (e.g. in Manual Mode).
+
+**Manual Mode:** fully offline - no WiFi, no NTP, no web setup page. The
+clock starts at `00:00:00` on 1 January of the firmware's build year (a
+placeholder) and just counts up from there using the ESP32's internal
+clock, which keeps running as long as it's powered but isn't
+battery-backed, so it resets on every power loss. Correct it from
+**Settings → Date/Time**, or connect to WiFi from **Settings → WiFi** to
+get real synced time instead.
 
 **Time zone (advanced):** the search box above just fills in the "POSIX time
 zone string" field under **Advanced** — you can also type/paste one directly
