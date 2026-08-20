@@ -44,20 +44,53 @@ const uint16_t COL_DIGIT_PALETTE[8] = {
 // ---- Status bar badges -------------------------------------------------
 // Each badge is a separated "pill": a solid colour rectangle with rounded
 // corners and a small gap to its neighbours, matching the reference photo.
-const uint16_t COL_YEAR_BG   = tft.color565(27, 111, 209);   // blue
-const uint16_t COL_YEAR_TXT  = tft.color565(15, 18, 26);     // near-black
-const uint16_t COL_MONTH_BG  = tft.color565(224, 34, 45);    // red
-const uint16_t COL_MONTH_TXT = TFT_WHITE;
-const uint16_t COL_DAY_BG    = TFT_WHITE;
-const uint16_t COL_DAY_TXT   = tft.color565(20, 20, 20);
-const uint16_t COL_WEEK_BG   = tft.color565(255, 205, 30);   // yellow
-const uint16_t COL_WEEK_TXT  = tft.color565(35, 28, 10);      // near-black
-const uint16_t COL_DOY_BG    = tft.color565(224, 133, 45);
-const uint16_t COL_WIFI_BG   = tft.color565(196, 238, 242);  // pastel cyan
-const uint16_t COL_WIFI_ICON = tft.color565(25, 60, 80);     // dark on light bg
-const uint16_t COL_WIFI_BAD  = tft.color565(214, 74, 74);
-const uint16_t COL_WIFI_BAD_ICON = TFT_WHITE;
-const uint16_t COL_BADGE_TXT = TFT_WHITE;
+// Colours are per-face (see BadgeTheme below) so the status bar re-skins
+// along with the clock face instead of staying the same rainbow palette
+// no matter which face is showing.
+const uint16_t COL_WIFI_BAD      = tft.color565(214, 74, 74); // universal
+const uint16_t COL_WIFI_BAD_ICON = TFT_WHITE;                 // "no wifi" warning
+const uint16_t COL_SETUP_BG      = tft.color565(27, 111, 209); // WiFi setup screen only
+
+struct BadgeTheme {
+  uint16_t yearBg, yearTxt;
+  uint16_t monthBg, monthTxt;
+  uint16_t dayBg, dayTxt;
+  uint16_t weekBg, weekTxt;
+  uint16_t doyBg, doyTxt;
+  uint16_t wifiBg, wifiIcon;
+};
+
+// Rainbow grid face: the original colourful badge row.
+const BadgeTheme THEME_RAINBOW = {
+  tft.color565(27, 111, 209),  tft.color565(15, 18, 26),    // year
+  tft.color565(224, 34, 45),   TFT_WHITE,                   // month
+  TFT_WHITE,                   tft.color565(20, 20, 20),    // day
+  tft.color565(255, 205, 30),  tft.color565(35, 28, 10),    // week
+  tft.color565(224, 133, 45),  TFT_WHITE,                   // day-of-year
+  tft.color565(196, 238, 242), tft.color565(25, 60, 80),    // wifi
+};
+
+// Retro LED face: dark "unlit segment" backgrounds with bright red/amber
+// text, matching the 7-segment digits' own colour family.
+const BadgeTheme THEME_LED = {
+  tft.color565(35, 10, 8),  tft.color565(255, 100, 60),   // year
+  tft.color565(45, 12, 8),  tft.color565(255, 70, 45),    // month
+  tft.color565(18, 6, 5),   tft.color565(150, 45, 30),    // day
+  tft.color565(35, 10, 8),  tft.color565(255, 140, 40),   // week
+  tft.color565(35, 10, 8),  tft.color565(255, 70, 45),    // day-of-year
+  tft.color565(28, 8, 6),   tft.color565(255, 70, 45),    // wifi
+};
+
+// Big single-colour face: dark blue-black backgrounds with bright cyan
+// text, matching the big cyan digits' single accent colour.
+const BadgeTheme THEME_CYAN = {
+  tft.color565(8, 24, 30),  tft.color565(0, 229, 255),    // year
+  tft.color565(10, 30, 36), tft.color565(0, 229, 255),    // month
+  tft.color565(5, 15, 19),  tft.color565(0, 140, 160),    // day
+  tft.color565(8, 24, 30),  tft.color565(0, 229, 255),    // week
+  tft.color565(8, 24, 30),  tft.color565(0, 229, 255),    // day-of-year
+  tft.color565(6, 19, 24),  tft.color565(0, 229, 255),    // wifi
+};
 
 // ---- Layout -----------------------------------------------------------
 const int SCR_W = TFT_SCREEN_WIDTH;
@@ -71,12 +104,14 @@ const int TOPBAR_H = 30;
 const int BADGE_MARGIN_Y = 3;
 const int BADGE_RADIUS   = 6;
 
-struct Badge { int x, w; uint16_t color; };
-const Badge B_YEAR  = {3,   50, COL_YEAR_BG};
-const Badge B_MDAY  = {56,  74, COL_MONTH_BG};   // month+day, two-tone
-const Badge B_WEEK  = {133, 76, COL_WEEK_BG};
-const Badge B_DOY   = {212, 76, COL_DOY_BG};
-const Badge B_WIFI  = {291, 26, COL_WIFI_BG};
+// Badge geometry only - colours come from the current BadgeTheme instead
+// of being baked in, so the same Badge works for every face.
+struct Badge { int x, w; };
+const Badge B_YEAR  = {3,   50};
+const Badge B_MDAY  = {56,  74};   // month+day, two-tone
+const Badge B_WEEK  = {133, 76};
+const Badge B_DOY   = {212, 76};
+const Badge B_WIFI  = {291, 26};
 
 const int CLOCK_TOP = TOPBAR_H;
 const int CLOCK_H   = SCR_H - TOPBAR_H;
@@ -109,10 +144,16 @@ int colX(int col) {
 
 // ---- clock faces --------------------------------------------------------
 // Tapping the BOOT button cycles between these (see ESP32_WiFi_Clock.ino).
-// The status badge row is shared by every face; only the big HH:MM:SS area
-// (and whether it gets the dashed grid lines) changes.
+// The status badge row re-skins along with the big HH:MM:SS area (and
+// whether it gets the dashed grid lines) - see BadgeTheme above.
 enum ClockFaceId { FACE_RAINBOW_GRID = 0, FACE_SEVEN_SEG = 1, FACE_BIG_CYAN = 2, FACE_COUNT = 3 };
 int currentFace = FACE_RAINBOW_GRID;
+
+const BadgeTheme &badgeTheme() {
+  if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
+  if (currentFace == FACE_BIG_CYAN) return THEME_CYAN;
+  return THEME_RAINBOW;
+}
 
 // ---- state cache, so we only repaint what changed --------------------
 char lastDigit[CELL_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -345,12 +386,11 @@ void drawColonCell(int col, bool visible) {
 
 // Draws a single-colour rounded pill for badge b, with 1 or 2 centred text
 // parts, and pushes it to the screen.
-void drawPillBadge(TFT_eSprite &spr, const Badge &b, const String &part1, uint16_t col1,
+void drawPillBadge(TFT_eSprite &spr, const Badge &b, uint16_t bg, const String &part1, uint16_t col1,
                     const String &part2, uint16_t col2) {
   spr.fillSprite(COL_BG);
   int pillH = TOPBAR_H - 2 * BADGE_MARGIN_Y;
-  spr.fillRect(0, BADGE_MARGIN_Y, b.w, pillH, b.color);
-  carveRoundCorners(spr, 0, BADGE_MARGIN_Y, b.w, pillH, BADGE_RADIUS, COL_BG);
+  spr.fillRect(0, BADGE_MARGIN_Y, b.w, pillH, bg);
 
   spr.setFreeFont(&FreeSansBold9pt7b);
   int w1 = part1.length() ? spr.textWidth(part1) : 0;
@@ -359,13 +399,19 @@ void drawPillBadge(TFT_eSprite &spr, const Badge &b, const String &part1, uint16
   int midY = TOPBAR_H / 2;
   spr.setTextDatum(ML_DATUM);
   if (w1) {
-    spr.setTextColor(col1, b.color);
+    spr.setTextColor(col1, bg);
     spr.drawString(part1, startX, midY);
   }
   if (w2) {
-    spr.setTextColor(col2, b.color);
+    spr.setTextColor(col2, bg);
     spr.drawString(part2, startX + w1, midY);
   }
+
+  // Carve LAST, after the text. drawString() is called with an opaque
+  // background colour, so TFT_eSPI paints a filled box behind every glyph -
+  // carving first meant that box repainted the corners solid again, most
+  // visibly on the widest text ("DAY 232" nearly spans its pill).
+  carveRoundCorners(spr, 0, BADGE_MARGIN_Y, b.w, pillH, BADGE_RADIUS, COL_BG);
   spr.pushSprite(b.x, 0);
 }
 
@@ -395,13 +441,13 @@ void drawSpacedDigits(TFT_eSprite &spr, const String &s, int cx, int cy, int gap
 // reference photo's two-tone date badge.
 void drawMonthDayBadge(int mon, int mday) {
   const Badge &b = B_MDAY;
+  const BadgeTheme &th = badgeTheme();
   int pillH = TOPBAR_H - 2 * BADGE_MARGIN_Y;
   int splitX = (b.w * 42) / 100;
 
   mdaySpr.fillSprite(COL_BG);
-  mdaySpr.fillRect(0, BADGE_MARGIN_Y, splitX, pillH, COL_MONTH_BG);
-  mdaySpr.fillRect(splitX, BADGE_MARGIN_Y, b.w - splitX, pillH, COL_DAY_BG);
-  carveRoundCorners(mdaySpr, 0, BADGE_MARGIN_Y, b.w, pillH, BADGE_RADIUS, COL_BG);
+  mdaySpr.fillRect(0, BADGE_MARGIN_Y, splitX, pillH, th.monthBg);
+  mdaySpr.fillRect(splitX, BADGE_MARGIN_Y, b.w - splitX, pillH, th.dayBg);
 
   char monBuf[3], dayBuf[3];
   snprintf(monBuf, sizeof(monBuf), "%02d", mon);
@@ -409,24 +455,26 @@ void drawMonthDayBadge(int mon, int mday) {
 
   mdaySpr.setFreeFont(&FreeSansBold9pt7b);
   int midY = TOPBAR_H / 2;
-  mdaySpr.setTextColor(COL_MONTH_TXT, COL_MONTH_BG);
+  mdaySpr.setTextColor(th.monthTxt, th.monthBg);
   drawSpacedDigits(mdaySpr, monBuf, splitX / 2, midY, 2);
   mdaySpr.setTextDatum(MC_DATUM);
-  mdaySpr.setTextColor(COL_DAY_TXT, COL_DAY_BG);
+  mdaySpr.setTextColor(th.dayTxt, th.dayBg);
   mdaySpr.drawString(dayBuf, splitX + (b.w - splitX) / 2, midY);
 
+  // Carve last - see the note in drawPillBadge().
+  carveRoundCorners(mdaySpr, 0, BADGE_MARGIN_Y, b.w, pillH, BADGE_RADIUS, COL_BG);
   mdaySpr.pushSprite(b.x, 0);
 }
 
 void drawWifiBadge(bool connected, int rssi) {
   const Badge &b = B_WIFI;
-  uint16_t bg = connected ? b.color : COL_WIFI_BAD;
-  uint16_t iconCol = connected ? COL_WIFI_ICON : COL_WIFI_BAD_ICON;
+  const BadgeTheme &th = badgeTheme();
+  uint16_t bg = connected ? th.wifiBg : COL_WIFI_BAD;
+  uint16_t iconCol = connected ? th.wifiIcon : COL_WIFI_BAD_ICON;
   int pillH = TOPBAR_H - 2 * BADGE_MARGIN_Y;
 
   wifiSpr.fillSprite(COL_BG);
   wifiSpr.fillRect(0, BADGE_MARGIN_Y, b.w, pillH, bg);
-  carveRoundCorners(wifiSpr, 0, BADGE_MARGIN_Y, b.w, pillH, BADGE_RADIUS, COL_BG);
 
   int bars = 0;
   if (connected) {
@@ -447,6 +495,10 @@ void drawWifiBadge(bool connected, int rssi) {
       wifiSpr.drawRect(bx, baseY - barH, 3, barH, iconCol);
     }
   }
+
+  // Carve last - see the note in drawPillBadge(). The leftmost signal bar
+  // reaches into the bottom-left corner zone, so this matters here too.
+  carveRoundCorners(wifiSpr, 0, BADGE_MARGIN_Y, b.w, pillH, BADGE_RADIUS, COL_BG);
   wifiSpr.pushSprite(b.x, 0);
 }
 
@@ -509,17 +561,17 @@ void showBootMessage(const String &line1, const String &line2) {
 }
 
 void showSetupScreen(const String &apName, const String &apIP) {
-  tft.fillScreen(COL_YEAR_BG);
+  tft.fillScreen(COL_SETUP_BG);
   tft.setTextDatum(MC_DATUM);
   tft.setFreeFont(&FreeSansBold12pt7b);
-  tft.setTextColor(TFT_WHITE, COL_YEAR_BG);
+  tft.setTextColor(TFT_WHITE, COL_SETUP_BG);
   tft.drawString("WiFi Setup", SCR_W / 2, 34);
 
   tft.setFreeFont(&FreeSansBold9pt7b);
   tft.drawString("Connect your phone to:", SCR_W / 2, 68);
-  tft.setTextColor(TFT_YELLOW, COL_YEAR_BG);
+  tft.setTextColor(TFT_YELLOW, COL_SETUP_BG);
   tft.drawString(apName, SCR_W / 2, 92);
-  tft.setTextColor(TFT_WHITE, COL_YEAR_BG);
+  tft.setTextColor(TFT_WHITE, COL_SETUP_BG);
   tft.drawString("Then open http://" + apIP, SCR_W / 2, 122);
   tft.drawString("to enter your WiFi + password", SCR_W / 2, 144);
 
@@ -574,7 +626,8 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
   String yearStr(yearBuf);
   if (yearStr != lastDateStr) {
     lastDateStr = yearStr;
-    drawPillBadge(yearSpr, B_YEAR, yearStr, COL_YEAR_TXT, "", COL_YEAR_TXT);
+    const BadgeTheme &th = badgeTheme();
+    drawPillBadge(yearSpr, B_YEAR, th.yearBg, yearStr, th.yearTxt, "", th.yearTxt);
   }
 
   // ---- month/day badge (two-tone: red month, white day) ----
@@ -591,7 +644,8 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
   String weekStr = WD[timeinfo.tm_wday];
   if (weekStr != lastWeekStr) {
     lastWeekStr = weekStr;
-    drawPillBadge(weekSpr, B_WEEK, weekStr, COL_WEEK_TXT, "", COL_WEEK_TXT);
+    const BadgeTheme &th = badgeTheme();
+    drawPillBadge(weekSpr, B_WEEK, th.weekBg, weekStr, th.weekTxt, "", th.weekTxt);
   }
 
   // ---- day-of-year badge ----
@@ -599,7 +653,8 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
     lastYday = timeinfo.tm_yday;
     char doyBuf[10];
     snprintf(doyBuf, sizeof(doyBuf), "DAY %03d", timeinfo.tm_yday + 1);
-    drawPillBadge(doySpr, B_DOY, String(doyBuf), COL_BADGE_TXT, "", COL_BADGE_TXT);
+    const BadgeTheme &th = badgeTheme();
+    drawPillBadge(doySpr, B_DOY, th.doyBg, String(doyBuf), th.doyTxt, "", th.doyTxt);
   }
 
   // ---- wifi badge ----

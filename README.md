@@ -172,11 +172,15 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
 
 ## Customizing
 
-- **Colors / layout**: all badge positions and colors are constants near the
-  top of `clock_display.cpp` (`B_YEAR`, `B_MDAY`, `B_WEEK`, `B_DOY`, `B_WIFI`,
-  and the `COL_*` values). Badges render as separated, rounded-corner pills
-  (`drawPillBadge()` / `carveRoundCorners()`); the month/day badge is a
-  single two-tone pill (`drawMonthDayBadge()`, red month + white day).
+- **Colors / layout**: badge positions are constants near the top of
+  `clock_display.cpp` (`B_YEAR`, `B_MDAY`, `B_WEEK`, `B_DOY`, `B_WIFI`).
+  Badge *colours* are per-face, not fixed — each face has its own
+  `BadgeTheme` (`THEME_RAINBOW`, `THEME_LED`, `THEME_CYAN`), and
+  `badgeTheme()` picks the one matching `currentFace`, so the status bar
+  re-skins to match whichever clock face is active instead of staying the
+  same palette on every face. Badges render as separated, rounded-corner
+  pills (`drawPillBadge()` / `carveRoundCorners()`); the month/day badge is
+  a single two-tone pill (`drawMonthDayBadge()`).
 - **Clock digit fonts**: the big HH:MM:SS digits use custom anti-aliased
   TFT_eSPI "smooth fonts" embedded as byte arrays and loaded at runtime via
   `digitSpr.loadFont(...)` — no filesystem/SPIFFS needed. The rainbow face
