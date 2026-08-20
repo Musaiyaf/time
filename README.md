@@ -117,6 +117,7 @@ firmware/ESP32_WiFi_Clock/
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
 tools/make_custom_face.py    - CLI: builds a Custom Face package for the SD card
 tools/make_custom_face.html  - same, as a no-install, in-browser tool
+tools/make_digit_font.html   - traces photos into a compilable digit font (.h)
 .github/workflows/build-firmware.yml - CI build producing a flashable .bin
 ```
 
@@ -347,23 +348,29 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   gold face uses `BebasDigits123.h` (from
   [Bebas Neue](https://fonts.google.com/specimen/Bebas+Neue) at 123pt — a
   tall condensed face chosen deliberately for a very different look). Both
-  are OFL-1.1 licensed. To use a different font, rasterize new glyphs into
-  TFT_eSPI's `.vlw` format and regenerate the header; `CELL_DIGIT_W`/
-  `CELL_COLON_W` in `clock_display.cpp` control the cell widths if you need
-  to resize. **Every glyph must be strictly narrower than `CELL_DIGIT_W`
-  (51px)** — TFT_eSPI silently skips drawing a smooth-font glyph too wide
-  for its sprite rather than clipping it, which makes just the wide digits
-  invisible (see Troubleshooting).
+  are OFL-1.1 licensed. To use a different font for one of these two
+  *smooth* (anti-aliased) fonts, rasterize new glyphs into TFT_eSPI's
+  `.vlw` format and regenerate the header; `CELL_DIGIT_W`/`CELL_COLON_W` in
+  `clock_display.cpp` control the cell widths if you need to resize.
+  **Every glyph must be strictly narrower than `CELL_DIGIT_W` (51px)** —
+  TFT_eSPI silently skips drawing a smooth-font glyph too wide for its
+  sprite rather than clipping it, which makes just the wide digits
+  invisible (see Troubleshooting). Alternatively, `tools/make_digit_font.html`
+  traces photos of digits into a *non*-anti-aliased "GFXfont" header (the
+  same format `FreeSansBold9pt7b`/`12pt7b` already use here) entirely in a
+  browser, no Processing/TFT_eSPI tooling needed — a rougher look than a
+  real vector font, but a self-service option that doesn't need a TTF at all.
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
   per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`,
-  `drawBigCyanDigitCell()`) based on `currentFace`; `ClockDisplay::nextFace()`
-  cycles through the `ClockFaceId` enum (`FACE_COUNT` faces total) and is
-  wired to a BOOT-button tap in `ESP32_WiFi_Clock.ino`. A face that wants its
-  own smooth font (rather than plain geometry, like the LED face) needs to
-  be added to `ensureDigitFont()` too, since `digitSpr` can only hold one
-  loaded font at a time. Add a new face by adding an enum value, a
-  `drawXxxDigitCell()` function, a branch in `drawDigitCell()`, and (if it
-  needs its own font) a branch in `ensureDigitFont()`.
+  `drawGoldDigitCell()`, `drawSpectrumDigitCell()`, `drawCustomDigitCell()`)
+  based on `currentFace`; `ClockDisplay::nextFace()` cycles through the
+  `ClockFaceId` enum (`FACE_COUNT` faces total) and is wired to a LEFT/RIGHT
+  tap in `ESP32_WiFi_Clock.ino`. A face that wants its own smooth font
+  (rather than plain geometry, like the LED face) needs to be added to
+  `ensureDigitFont()` too, since `digitSpr` can only hold one loaded font at
+  a time. Add a new face by adding an enum value, a `drawXxxDigitCell()`
+  function, a branch in `drawDigitCell()`, and (if it needs its own font) a
+  branch in `ensureDigitFont()`.
 - **12-hour clock**: change the `snprintf` format in
   `ClockDisplay::update()` (`clock_display.cpp`) and adjust `timeinfo.tm_hour`.
 - **Chinese weekday/lunar labels**: replace the `WD[]` table and the
