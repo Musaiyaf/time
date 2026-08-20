@@ -62,3 +62,12 @@
 #define DEFAULT_POSIX_TZ "UTC0"
 
 #define WIFI_CONNECT_TIMEOUT_MS 15000UL
+
+// ---------------------------------------------------------------------
+// mDNS: once connected to WiFi, the clock is also reachable at
+// http://<MDNS_HOSTNAME>.local/ - no need to look up its IP address.
+// (Only resolves on networks/clients that support mDNS/Bonjour; most
+// phones, Macs and Linux do out of the box, some Windows/router setups
+// don't - the IP address on the About screen still works everywhere.)
+// ---------------------------------------------------------------------
+#define MDNS_HOSTNAME "esp32-clock"

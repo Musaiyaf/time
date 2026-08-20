@@ -264,7 +264,8 @@ void render() {
     case ST_ABOUT: {
       String ip = WiFi.localIP().toString();
       drawScreen("ABOUT", COL_HEADING_BG, COL_HEADING_TXT,
-                 ip, COL_SETTINGS_ACCENT, "Web setup page", "OK or hold: back");
+                 ip, COL_SETTINGS_ACCENT, String(MDNS_HOSTNAME) + ".local",
+                 "OK or hold: back");
       break;
     }
     case ST_SAVED: {
@@ -418,6 +419,7 @@ bool runWifiPicker() {
       bool ok = WifiManager::connectSTA(ssids[idx], pass, WIFI_CONNECT_TIMEOUT_MS);
       if (ok) {
         WifiManager::saveCredentials(ssids[idx], pass);
+        WifiManager::startMDNS(); // IP likely changed - re-announce it
         drawScreen("WIFI SETUP", COL_HEADING_BG, COL_HEADING_TXT, "Connected!", COL_SETTINGS_ACCENT, ssids[idx], "");
         delay(1200);
         return true;

@@ -19,6 +19,11 @@ void saveTimeConfig(const String &tz, const String &ntp1, const String &ntp2);
 // STA (client) mode
 bool connectSTA(const String &ssid, const String &pass, unsigned long timeoutMs);
 
+// Starts (or restarts, e.g. after switching networks) the mDNS responder
+// so the clock is reachable at http://<MDNS_HOSTNAME>.local/ in addition
+// to its IP address. Call once after connectSTA() succeeds.
+void startMDNS();
+
 // AP (setup) mode
 void startAP();
 void stopAP();

@@ -22,7 +22,7 @@
 //   Partition Scheme: "Default 4MB with spiffs" (or any scheme with OTA off)
 //
 // Library dependencies: TFT_eSPI (configured via TFT_eSPI_Setup/User_Setup.h,
-// see the repo README). WiFi, WebServer, DNSServer and Preferences ship with
+// see the repo README). WiFi, WebServer, DNSServer, ESPmDNS and Preferences ship with
 // the ESP32 Arduino core.
 
 #include <WiFi.h>
@@ -90,6 +90,7 @@ void setup() {
     staMode = true;
     staConnectedAt = millis();
     ClockDisplay::showBootMessage("Connected!", "Waiting for time sync...");
+    WifiManager::startMDNS();
     WifiManager::syncTime();
     // Start the portal immediately (not gated on NTP) so the clock's IP is
     // reachable - e.g. to check status or change WiFi/time zone - even if

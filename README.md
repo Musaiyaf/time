@@ -154,11 +154,11 @@ reboots and connects.
 **Changing WiFi or time zone later:** the easiest way is the on-device menu
 below (hold OK → **Settings** → **WiFi** or **Time Zone**) — no phone
 needed for either. The web page still works too: while connected it's
-served from the clock's own IP address (check the on-device **About**
-screen, your router's client list, or power-cycle the clock and read the IP
-off the brief "Waiting for NTP..." screen before it finishes syncing).
-Reflash, hold OK for 3s at power-up, or use the on-device WiFi menu item to
-reconnect to a different network.
+served from `http://esp32-clock.local/` (mDNS - works out of the box on
+most phones, Macs and Linux; some Windows/router setups don't support it,
+in which case use the IP address from the on-device **About** screen or
+your router's client list instead). Reflash, hold OK for 3s at power-up, or
+use the on-device WiFi menu item to reconnect to a different network.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
 cycle between three clock faces: the rainbow grid face; a retro LED face
@@ -189,8 +189,8 @@ level). Selecting **Settings** opens a plain-text list with three items:
   zone search box, colour-coded by region. Confirming applies the new POSIX
   TZ string immediately (saved to NVS, and the clock re-syncs against it)
   — no reboot needed.
-- **About** — shows the clock's current IP address (the same one the web
-  setup page is served from).
+- **About** — shows the clock's current IP address and its mDNS hostname
+  (`esp32-clock.local`), the two ways to reach the web setup page.
 
 **Time zone (advanced):** the search box above just fills in the "POSIX time
 zone string" field under **Advanced** — you can also type/paste one directly

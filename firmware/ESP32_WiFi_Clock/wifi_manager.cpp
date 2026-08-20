@@ -1,6 +1,7 @@
 #include "wifi_manager.h"
 #include "config.h"
 #include <WiFi.h>
+#include <ESPmDNS.h>
 #include <Preferences.h>
 #include <time.h>
 
@@ -66,6 +67,15 @@ bool connectSTA(const String &ssid, const String &pass, unsigned long timeoutMs)
     delay(250);
   }
   return WiFi.status() == WL_CONNECTED;
+}
+
+void startMDNS() {
+  // MDNS.end() is a safe no-op if it was never started; calling it first
+  // lets this double as a restart after the picker switches networks
+  // (the responder needs to re-announce under the new IP).
+  MDNS.end();
+  MDNS.begin(MDNS_HOSTNAME);
+  MDNS.addService("http", "tcp", 80);
 }
 
 void startAP() {
