@@ -271,10 +271,12 @@ decoding in the browser itself: pick a video with the **Video Wallpaper**
 card's **Choose video** button, drag the crop box and use the zoom slider
 to frame it, pick a length (1-8s), then **Save to clock**. The page reads
 frames from the video using its own `<video>`/`<canvas>` decoder, crops/
-resizes each one to 320x140 (the clock's digit area) at 5 fps, converts
-straight to raw RGB565, and uploads the result as one file to
-`/video/video.bin` on the SD card. The original video file itself is never
-sent to the clock - only those already-processed frames.
+resizes each one to 320x170 (the clock's *entire* screen - Video Face hides
+the usual date/weekday/WiFi status bar for a fullscreen look, unlike every
+other face) at 5 fps, converts straight to raw RGB565, and uploads the
+result as one file to `/video/video.bin` on the SD card. The original
+video file itself is never sent to the clock - only those already-
+processed frames.
 
 Playback (LEFT/RIGHT to the **Video** face) reads that file straight off
 the SD card, entirely independent of the web portal or WiFi - closing the

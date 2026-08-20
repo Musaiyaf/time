@@ -241,10 +241,11 @@ tzInit();
 // Decoding/resizing happens entirely here in the browser, using the
 // video's own <video>/<canvas> decoder - the ESP32 never sees the
 // original video file, only the already-cropped/resized raw RGB565
-// frames this builds and uploads. Output is fixed at 320x140 (the
-// clock's digit area, below the status badges) so the firmware side
-// never has to scale anything - it just blits whatever's here.
-var VID_OUT_W = 320, VID_OUT_H = 140, VID_FPS = 5;
+// frames this builds and uploads. Output is fixed at 320x170 (the
+// clock's full screen - Video Face hides the status bar for a fullscreen
+// look) so the firmware side never has to scale anything - it just blits
+// whatever's here.
+var VID_OUT_W = 320, VID_OUT_H = 170, VID_FPS = 5;
 var vidPanX = 0.5, vidPanY = 0.5, vidDragging = false, vidDragStart = null;
 
 function clamp01(v){ return Math.max(0, Math.min(1, v)); }

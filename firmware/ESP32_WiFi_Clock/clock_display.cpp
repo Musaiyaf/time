@@ -822,21 +822,24 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
   // The colon dots blink once a second (on for even seconds, off for odd).
   int colonVisible = (timeinfo.tm_sec % 2 == 0) ? 1 : 0;
   if (currentFace == FACE_VIDEO) {
-    // Video Face replaces the whole digit area with looping frames read
-    // straight off the SD card (see video_player.h) - entirely independent
-    // of the web portal/WiFi, so it keeps playing after the browser tab
-    // that uploaded it is closed. VideoPlayer::draw() self-paces off the
-    // video's own saved fps and no-ops between frames, so it's cheap to
-    // call on every tick regardless of this face's usual per-second cadence.
+    // Video Face replaces the *entire* screen, status bar included - not
+    // just the usual CLOCK_TOP..CLOCK_H digit area every other face
+    // shares - for a fullscreen look with nothing overlaid on top. It
+    // reads looping frames straight off the SD card (see video_player.h),
+    // entirely independent of the web portal/WiFi, so it keeps playing
+    // after the browser tab that uploaded it is closed. VideoPlayer::
+    // draw() self-paces off the video's own saved fps and no-ops between
+    // frames, so it's cheap to call on every tick regardless of this
+    // face's usual per-second cadence.
     if (VideoPlayer::isAvailable()) {
-      VideoPlayer::draw(tft, 0, CLOCK_TOP, SCR_W, CLOCK_H);
+      VideoPlayer::draw(tft, 0, 0, SCR_W, SCR_H);
     } else {
-      tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, COL_BG);
+      tft.fillRect(0, 0, SCR_W, SCR_H, COL_BG);
       tft.setFreeFont(&FreeSansBold9pt7b);
       tft.setTextColor(TFT_WHITE, COL_BG);
       tft.setTextDatum(MC_DATUM);
-      tft.drawString("No video saved", SCR_W / 2, CLOCK_TOP + CLOCK_H / 2 - 12);
-      tft.drawString("Upload one from the web portal", SCR_W / 2, CLOCK_TOP + CLOCK_H / 2 + 12);
+      tft.drawString("No video saved", SCR_W / 2, SCR_H / 2 - 12);
+      tft.drawString("Upload one from the web portal", SCR_W / 2, SCR_H / 2 + 12);
       tft.setFreeFont(nullptr);
     }
   } else {
@@ -857,6 +860,12 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
     }
   }
   lastColonVisible = colonVisible;
+
+  // Video Face uses the full screen (see its branch above, which draws
+  // 0..SCR_H rather than the usual CLOCK_TOP..CLOCK_H) instead of the
+  // status bar + digit area every other face shares, so none of that
+  // applies while it's active.
+  if (currentFace == FACE_VIDEO) return;
 
   // ---- year badge ----
   char yearBuf[5];
