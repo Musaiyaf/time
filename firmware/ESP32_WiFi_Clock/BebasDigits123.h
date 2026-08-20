@@ -3,10 +3,10 @@
 // Anti-aliased smooth font (TFT_eSPI VLW format) covering just the digits
 // 0-9, rendered from Bebas Neue (Google Fonts, OFL-1.1 license) at 123pt -
 // a tall, condensed, hard-edged display face, deliberately very different
-// from the rounded FredokaDigits87 used elsewhere. Used by the gold face,
-// and optionally by Custom face (face.cfg's font= key). Every glyph is
-// exactly 49px wide (fits CELL_DIGIT_W=51 with a 1px margin) and up to
-// 88px tall - noticeably taller than the other faces.
+// from the rounded FredokaDigits87 used elsewhere. Used by the gold and
+// spectrum faces, and optionally by Custom face (face.cfg's font= key).
+// Every glyph is exactly 49px wide (fits CELL_DIGIT_W=51 with a 1px
+// margin) and up to 88px tall - noticeably taller than the other faces.
 // Load with:
 //   digitSpr.loadFont(BebasDigits123);
 // and free it with digitSpr.unloadFont() when switching to another font.

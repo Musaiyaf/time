@@ -93,6 +93,18 @@ const BadgeTheme THEME_GOLD = {
   tft.color565(16, 13, 6),  tft.color565(205, 165, 70),   // wifi
 };
 
+// Spectrum face: near-black badges, but each one gets its own vivid accent
+// (rather than one flat colour like Gold/Custom) to echo the digits' own
+// one-colour-per-numeral palette below.
+const BadgeTheme THEME_SPECTRUM = {
+  tft.color565(10, 14, 20), tft.color565(60, 170, 255),   // year - blue
+  tft.color565(14, 10, 10), tft.color565(230, 60, 60),    // month - red
+  tft.color565(12, 12, 8),  tft.color565(220, 175, 60),   // day - gold
+  tft.color565(8, 14, 10),  tft.color565(60, 200, 90),    // week - green
+  tft.color565(12, 8, 16),  tft.color565(160, 90, 230),   // day-of-year - purple
+  tft.color565(8, 13, 13),  tft.color565(40, 200, 200),   // wifi - teal
+};
+
 // ---- Layout -----------------------------------------------------------
 const int SCR_W = TFT_SCREEN_WIDTH;
 const int SCR_H = TFT_SCREEN_HEIGHT;
@@ -151,13 +163,30 @@ enum ClockFaceId {
   FACE_RAINBOW_GRID = 0,
   FACE_SEVEN_SEG = 1,
   FACE_GOLD = 2,
-  FACE_CUSTOM = 3,
-  FACE_COUNT = 4
+  FACE_SPECTRUM = 3,
+  FACE_CUSTOM = 4,
+  FACE_COUNT = 5
 };
 int currentFace = FACE_RAINBOW_GRID;
 
 // Rich gold, used for both the Gold face's digits and its colon dots.
 const uint16_t COL_GOLD = tft.color565(205, 165, 70);
+
+// Spectrum face: one fixed colour per digit VALUE (0-9) rather than per
+// cell position like the rainbow grid face, so e.g. every "1" anywhere on
+// the clock is always silver, every "9" always pink, and so on.
+const uint16_t COL_SPECTRUM_DIGIT[10] = {
+  tft.color565(40, 150, 255),  // 0 - blue
+  tft.color565(200, 205, 210), // 1 - silver
+  tft.color565(230, 45, 45),   // 2 - red
+  tft.color565(220, 175, 60),  // 3 - gold
+  tft.color565(120, 200, 45),  // 4 - green
+  tft.color565(155, 85, 225),  // 5 - purple
+  tft.color565(35, 195, 195),  // 6 - teal
+  tft.color565(230, 130, 30),  // 7 - orange
+  tft.color565(200, 205, 210), // 8 - silver
+  tft.color565(230, 55, 145),  // 9 - pink
+};
 
 // ---- Custom face: a user-supplied background image + colours, loaded
 // from an optional SD card (see sd_card.h). Entirely optional - with no
@@ -235,6 +264,7 @@ void ensureCustomFaceLoaded() {
 const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
   if (currentFace == FACE_GOLD) return THEME_GOLD;
+  if (currentFace == FACE_SPECTRUM) return THEME_SPECTRUM;
   if (currentFace == FACE_CUSTOM) {
     static BadgeTheme customTheme;
     uint16_t bg = tft.color565(10, 10, 14);
@@ -436,19 +466,36 @@ void drawGoldDigitCell(int col, char ch) {
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
+// ---- Spectrum face ---------------------------------------------------
+// Also BebasDigits123, but each digit VALUE (not cell position) gets its
+// own fixed colour - COL_SPECTRUM_DIGIT above - plus the same top-lit
+// gloss Gold uses, for the same metallic-highlight look applied to a
+// rainbow of colours instead of one.
+void drawSpectrumDigitCell(int col, char ch) {
+  int x = colX(col);
+  digitSpr.fillSprite(COL_BG);
+  int digit = ch - '0';
+  uint16_t color = (digit >= 0 && digit <= 9) ? COL_SPECTRUM_DIGIT[digit] : TFT_WHITE;
+  digitSpr.setTextColor(color, COL_BG);
+  digitSpr.setTextDatum(MC_DATUM);
+  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
+  applyDigitGloss(digitSpr, CELL_DIGIT_W, CLOCK_H);
+  digitSpr.pushSprite(x, CLOCK_TOP);
+}
+
 // digitSpr holds one smooth font at a time (Fredoka for the rainbow face,
-// Bebas for the gold face - the LED face doesn't use a font at all).
-// Custom face picks between the two via customCfg.fontId (from face.cfg -
-// see ensureCustomFaceLoaded(), which must run before this so the choice
-// is already loaded by the time this checks it). Reloading a font takes a
-// moment to parse, so this only runs when the target face actually needs
-// a different font than what's currently loaded, rather than on every
-// digit redraw.
+// Bebas for the gold/spectrum faces - the LED face doesn't use a font at
+// all). Custom face picks between the two via customCfg.fontId (from
+// face.cfg - see ensureCustomFaceLoaded(), which must run before this so
+// the choice is already loaded by the time this checks it). Reloading a
+// font takes a moment to parse, so this only runs when the target face
+// actually needs a different font than what's currently loaded, rather
+// than on every digit redraw.
 void ensureDigitFont() {
   static int loadedFont = -1; // -1 = none yet, 0 = Fredoka, 1 = Bebas
   int needed = currentFace == FACE_CUSTOM ? customCfg.fontId
-              : currentFace == FACE_GOLD  ? 1
-                                           : 0;
+              : (currentFace == FACE_GOLD || currentFace == FACE_SPECTRUM) ? 1
+                                                                            : 0;
   if (needed == loadedFont) return;
   digitSpr.unloadFont();
   if (needed == 1) digitSpr.loadFont(BebasDigits123);
@@ -498,6 +545,8 @@ void drawDigitCell(int col, char ch) {
     drawSevenSegDigitCell(col, ch);
   } else if (currentFace == FACE_GOLD) {
     drawGoldDigitCell(col, ch);
+  } else if (currentFace == FACE_SPECTRUM) {
+    drawSpectrumDigitCell(col, ch);
   } else if (currentFace == FACE_CUSTOM) {
     drawCustomDigitCell(col, ch);
   } else {
