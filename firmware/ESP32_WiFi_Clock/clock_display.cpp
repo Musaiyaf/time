@@ -4,7 +4,7 @@
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
 #include "BebasDigits123.h"
-#include "PhotoGoldDigits.h"
+#include "PhotoDigits.h"
 // TFT_eSPI.h (with LOAD_GFXFF enabled) already pulls in every Adafruit GFX
 // free font, including these two, via its own Fonts/GFXFF/gfxfont.h. Those
 // font headers have no include guards, so including them again here would
@@ -25,7 +25,7 @@ TFT_eSprite mdaySpr(&tft);
 TFT_eSprite weekSpr(&tft);
 TFT_eSprite doySpr(&tft);
 TFT_eSprite wifiSpr(&tft);
-TFT_eSprite photoDigitSpr(&tft); // Photo Gold face only - see drawPhotoGoldRow()
+TFT_eSprite photoDigitSpr(&tft); // Photo face only - see drawPhotoRow()
 
 // ---- Theme colours (approximating the reference photo) -------------
 const uint16_t COL_BG        = TFT_BLACK;
@@ -167,7 +167,7 @@ enum ClockFaceId {
   FACE_GOLD = 2,
   FACE_SPECTRUM = 3,
   FACE_CUSTOM = 4,
-  FACE_PHOTO_GOLD = 5,
+  FACE_PHOTO = 5,
   FACE_COUNT = 6
 };
 int currentFace = FACE_RAINBOW_GRID;
@@ -266,8 +266,8 @@ void ensureCustomFaceLoaded() {
 
 const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
-  if (currentFace == FACE_GOLD || currentFace == FACE_PHOTO_GOLD) return THEME_GOLD;
-  if (currentFace == FACE_SPECTRUM) return THEME_SPECTRUM;
+  if (currentFace == FACE_GOLD) return THEME_GOLD;
+  if (currentFace == FACE_SPECTRUM || currentFace == FACE_PHOTO) return THEME_SPECTRUM;
   if (currentFace == FACE_CUSTOM) {
     static BadgeTheme customTheme;
     uint16_t bg = tft.color565(10, 10, 14);
@@ -486,10 +486,11 @@ void drawSpectrumDigitCell(int col, char ch) {
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
-// ---- Photo Gold face -------------------------------------------------
-// Real photographed gold digits (background removed, RGB565), not a font -
-// see PhotoGoldDigits.h. Each digit has a different native size, so unlike
-// every other face this one can't reuse the fixed CELL_DIGIT_W column grid:
+// ---- Photo face -----------------------------------------------------
+// Real photographed digits (background removed, RGB565), not a font - see
+// PhotoDigits.h. Each digit is its own distinct typeface/colour (a font-
+// sampler style, one look per value) rather than one consistent font, so
+// unlike every other face this can't reuse the fixed CELL_DIGIT_W column grid:
 // laid out edge to edge at their native aspect ratio, a full row would run
 // well past this 320px screen. Every digit is instead scaled to a single
 // fixed-width slot (photoSlotW, computed below from the widest digit at
@@ -503,8 +504,8 @@ void drawSpectrumDigitCell(int col, char ch) {
 // gaps/colon widths get (tried several combinations; none clear ~59px).
 const int PHOTO_GAP = 1;       // gap between adjacent digit/colon slots
 const int PHOTO_COLON_W = 7;
-// Widest native digit (0 or 2, 97x114) sets the worst-case aspect ratio
-// (~0.851). At H=57, 6 slots * ceil(0.851*57)=49 + 2*7 (colons) +
+// Widest native digit (8, 141x165) sets the worst-case aspect ratio
+// (~0.855). At H=57, 6 slots * ceil(0.855*57)=49 + 2*7 (colons) +
 // 7*1 (gaps) = 294 + 14 + 7 = 315px, safely under SCR_W (320).
 const int PHOTO_H = 57;
 int photoSlotW = 0;       // widest scaled digit at PHOTO_H tall - set in begin()
@@ -514,7 +515,7 @@ int photoRowY = 0;
 // Scaled width of digit d (0-9) at a fixed height of PHOTO_H, preserving
 // its native aspect ratio.
 int photoScaledWidth(int d) {
-  const PhotoDigit &pd = PHOTO_GOLD_DIGITS[d];
+  const PhotoDigit &pd = PHOTO_DIGITS[d];
   return (pd.w * PHOTO_H + pd.h - 1) / pd.h; // ceil
 }
 
@@ -522,7 +523,7 @@ int photoScaledWidth(int d) {
 // photoDigitSpr at (scaled width x PHOTO_H), background-filled first so
 // the unused slot width right of a narrower digit stays black.
 void drawPhotoDigitToSprite(int d) {
-  const PhotoDigit &pd = PHOTO_GOLD_DIGITS[d];
+  const PhotoDigit &pd = PHOTO_DIGITS[d];
   int sw = photoScaledWidth(d);
   photoDigitSpr.fillSprite(COL_BG);
   for (int y = 0; y < PHOTO_H; y++) {
@@ -535,15 +536,15 @@ void drawPhotoDigitToSprite(int d) {
   }
 }
 
-void drawPhotoGoldColon(int x, bool visible) {
+void drawPhotoColon(int x, bool visible) {
   tft.fillRect(x, photoRowY, PHOTO_COLON_W, PHOTO_H, COL_BG);
   if (visible) {
     int cx = x + PHOTO_COLON_W / 2;
     int cy = photoRowY + PHOTO_H / 2;
     int r = max(3, PHOTO_COLON_W / 3);
     int gap = PHOTO_H / 5;
-    tft.fillSmoothCircle(cx, cy - gap, r, COL_GOLD, COL_BG);
-    tft.fillSmoothCircle(cx, cy + gap, r, COL_GOLD, COL_BG);
+    tft.fillSmoothCircle(cx, cy - gap, r, TFT_WHITE, COL_BG);
+    tft.fillSmoothCircle(cx, cy + gap, r, TFT_WHITE, COL_BG);
   }
 }
 
@@ -552,13 +553,13 @@ void drawPhotoGoldColon(int x, bool visible) {
 // photoSlotW rather than that slot's own content, so there's nothing
 // meaningful to diff per-digit; this just runs whenever any digit or the
 // colon blink state changes (see update()).
-void drawPhotoGoldRow(const char *buf, bool colonVisible) {
+void drawPhotoRow(const char *buf, bool colonVisible) {
   tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, COL_BG);
   int x = photoRowStartX;
   int idx = 0;
   for (int slot = 0; slot < 8; slot++) {
     if (slot == 2 || slot == 5) {
-      drawPhotoGoldColon(x, colonVisible);
+      drawPhotoColon(x, colonVisible);
       x += PHOTO_COLON_W + PHOTO_GAP;
     } else {
       int d = buf[idx++] - '0';
@@ -904,8 +905,8 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
   // buf: H H M M S S  -> map into the 8 cells (2 colon cells in between)
   // The colon dots blink once a second (on for even seconds, off for odd).
   int colonVisible = (timeinfo.tm_sec % 2 == 0) ? 1 : 0;
-  if (currentFace == FACE_PHOTO_GOLD) {
-    // Every slot's x position is fixed (see drawPhotoGoldRow()), so there's
+  if (currentFace == FACE_PHOTO) {
+    // Every slot's x position is fixed (see drawPhotoRow()), so there's
     // nothing to diff per-digit - just redraw the whole row when anything
     // in it changed. lastDigit[0..5] doubles as this face's HHMMSS cache
     // (it's fully reset to 0 on every face switch, so it never carries
@@ -915,7 +916,7 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
       if (lastDigit[i] != buf[i]) changed = true;
     }
     if (changed) {
-      drawPhotoGoldRow(buf, colonVisible);
+      drawPhotoRow(buf, colonVisible);
       for (int i = 0; i < 6; i++) lastDigit[i] = buf[i];
       lastColonVisible = colonVisible;
     }
