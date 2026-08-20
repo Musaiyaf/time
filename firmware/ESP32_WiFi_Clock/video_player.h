@@ -36,6 +36,15 @@ bool matchesSize(int w, int h);
 // rather than resuming mid-clip.
 void reset();
 
+// Forces the next isAvailable()/matchesSize()/draw() call to re-read the
+// video's header from SD instead of trusting the cached one. Call this
+// once a new upload finishes (see web_portal.cpp) - without it, a video
+// uploaded while the clock is already running keeps being judged against
+// whatever was true the *first* time the header was checked (e.g. still
+// reporting "wrong size" for a fresh, correctly-sized upload) until the
+// device is rebooted.
+void invalidate();
+
 // Draws the next due frame into the w x h rectangle at (x, y) on tft, if
 // the video's own frame interval has elapsed since the last draw (loops
 // back to frame 0 after the last one). Safe to call on every

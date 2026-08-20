@@ -2,6 +2,8 @@
 #include "webpage_html.h"
 #include "wifi_manager.h"
 #include "sd_card.h"
+#include "video_player.h"
+#include "clock_display.h"
 #include "config.h"
 #include <WiFi.h>
 
@@ -104,6 +106,39 @@ void handleResetWifi() {
 // happens independently of this web portal (or WiFi) still being up.
 const char *VIDEO_PATH = "/video/video.bin";
 
+// Total expected upload size, captured from the request's Content-Length
+// at UPLOAD_FILE_START - the multipart envelope adds a small fixed
+// overhead around the actual file, close enough for a progress percentage.
+size_t uploadTotalBytes = 0;
+int uploadLastPercentShown = -1;
+
+// Draws a simple "Receiving video... NN%" screen directly on the shared
+// display (see ClockDisplay::rawDisplay(), the same escape hatch the
+// on-device menu uses to draw its own screens) - the clock face has no
+// idea an upload is even happening, so this is the only way to surface
+// progress on-device rather than just in the browser tab.
+void drawUploadProgress(int percent) {
+  TFT_eSPI &tft = ClockDisplay::rawDisplay();
+  int w = TFT_SCREEN_WIDTH, h = TFT_SCREEN_HEIGHT;
+
+  tft.fillScreen(TFT_BLACK);
+  tft.setFreeFont(&FreeSansBold12pt7b);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString("Receiving video...", w / 2, h / 2 - 28);
+
+  int barW = w - 60, barH = 18;
+  int barX = 30, barY = h / 2 - 4;
+  tft.drawRect(barX, barY, barW, barH, TFT_WHITE);
+  int fillW = (barW - 4) * percent / 100;
+  tft.fillRect(barX + 2, barY + 2, fillW, barH - 4, TFT_CYAN);
+  tft.fillRect(barX + 2 + fillW, barY + 2, (barW - 4) - fillW, barH - 4, TFT_BLACK);
+
+  tft.setFreeFont(&FreeSansBold9pt7b);
+  tft.drawString(String(percent) + "%", w / 2, barY + barH + 18);
+  tft.setFreeFont(nullptr);
+}
+
 // Called once the upload transfer completes (after handleVideoUploadData
 // has streamed every chunk to SD) - just reports success/failure.
 void handleVideoUpload() {
@@ -115,10 +150,32 @@ void handleVideoUploadData() {
   HTTPUpload &upload = server->upload();
   if (upload.status == UPLOAD_FILE_START) {
     SdCard::beginWrite(VIDEO_PATH);
+    uploadTotalBytes = server->header("Content-Length").toInt();
+    uploadLastPercentShown = -1;
+    drawUploadProgress(0);
   } else if (upload.status == UPLOAD_FILE_WRITE) {
     SdCard::writeChunk(upload.buf, upload.currentSize);
+    if (uploadTotalBytes > 0) {
+      int percent = (int)((upload.totalSize * 100ULL) / uploadTotalBytes);
+      if (percent > 100) percent = 100;
+      // Redrawing on every chunk (there are thousands, at ~1.4KB each for
+      // a multi-MB upload) would badly slow the transfer down with SPI
+      // traffic - only repaint when the shown percentage actually changes.
+      if (percent != uploadLastPercentShown) {
+        uploadLastPercentShown = percent;
+        drawUploadProgress(percent);
+      }
+    }
   } else if (upload.status == UPLOAD_FILE_END) {
     SdCard::endWrite();
+    // A new file is on SD now - forget whatever header VideoPlayer had
+    // cached (possibly from this very file's previous, differently-sized
+    // version) so Video Face picks up the fresh one on its next redraw
+    // instead of judging it against stale state until a reboot.
+    VideoPlayer::invalidate();
+    drawUploadProgress(100);
+    delay(400); // brief, so "100%" is actually visible before it clears
+    ClockDisplay::forceFullRedraw();
   }
 }
 
@@ -156,6 +213,13 @@ void begin(WebServer *serverPtr, DNSServer *dnsPtr, bool isCaptive) {
   server = serverPtr;
   dns = dnsPtr;
   captive = isCaptive;
+
+  // WebServer only exposes headers explicitly registered here - without
+  // this, server->header("Content-Length") in handleVideoUploadData()
+  // would always come back empty, and the upload progress bar could
+  // never compute a percentage.
+  static const char *collectedHeaders[] = {"Content-Length"};
+  server->collectHeaders(collectedHeaders, 1);
 
   server->on("/", HTTP_GET, handleRoot);
   server->on("/scan", HTTP_GET, handleScan);

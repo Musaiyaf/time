@@ -72,6 +72,12 @@ void reset() {
   nextDue = 0; // due immediately on the next draw() call
 }
 
+void invalidate() {
+  headerLoaded = false;
+  valid = false;
+  reset();
+}
+
 void draw(TFT_eSPI &tft, int x, int y, int w, int h) {
   loadHeaderIfNeeded();
   if (!valid || (int)vidW != w || (int)vidH != h) return;
