@@ -206,7 +206,7 @@ your router's client list instead). Reflash, hold OK for 3s at power-up, or
 use the on-device WiFi menu item to reconnect to a different network.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between six clock faces: the rainbow grid face; a retro LED face
+cycle between seven clock faces: the rainbow grid face; a retro LED face
 (classic digital-alarm-clock style 7-segment digits, bright red on black,
 with a faint ghost of the unlit segments); [**Custom**](#custom-face),
 which shows your own background image and colours from an SD card;
@@ -215,13 +215,15 @@ which shows your own background image and colours from an SD card;
 0-9 is its own real photographed typeface and colour, not one consistent
 font - on a plain white background (several of the digits are themselves
 too dark to read on the black background every other face uses), with a
-matching white status bar; and **Botanical**, illuminated-manuscript
+matching white status bar; **Botanical**, illuminated-manuscript
 digits - an orange/red letterform on its own black panel, bordered with
 green vines and small yellow flowers - on a deep vine-green background
 sampled from that same artwork, with a matching green status bar and
-cream text. The status bar re-skins to match whichever face is active
-(or hides entirely on Video). The choice isn't saved across a power
-cycle - it always starts on the rainbow grid face.
+cream text; and [**Deco**](#deco-face), slender Art Deco outline digits,
+fullscreen with no status bar at all (like Video). The status bar
+re-skins to match whichever face is active (or hides entirely on Video
+and Deco). The choice isn't saved across a power cycle - it always
+starts on the rainbow grid face.
 
 ### Custom Face
 
@@ -310,6 +312,22 @@ behind and around* the panels and the status bar, both set to a deep
 vine-green sampled straight from the digits' own leaves (`COL_BOTANICAL_BG`
 in `clock_display.cpp`), with cream badge text sampled from the source
 art's own parchment-page background.
+
+### Deco Face
+
+A slender Art Deco outline typeface, white on black, drawn fullscreen
+with no status bar at all - the same treatment as [Video](#video-wallpaper),
+for the plainest possible look with the whole 320x170 panel free for the
+clock. Like Photo and Botanical, each digit has a different native width
+(from "1" at its narrowest to "4" at its widest), so it uses the same
+fixed-slot scaling approach to keep the HH:MM:SS row's width constant
+between redraws - it just doesn't share Photo/Botanical's sizing, since
+those reserve the status bar's 30px and this face doesn't. Six digits at
+320px wide still caps out around the same ~57px tall either way ("4"'s
+own proportions are the limit, not the status bar), so going fullscreen
+mostly buys extra black margin above and below rather than bigger digits;
+dropping to HH:MM (no seconds) would let it grow substantially larger,
+if that trade is ever worth making.
 
 **On-device main menu:** hold OK (not a tap - hold it down) on any clock
 face to open the top-level menu: three icon tiles, **SD Card**,

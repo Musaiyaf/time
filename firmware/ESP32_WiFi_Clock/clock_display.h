@@ -11,9 +11,9 @@ namespace ClockDisplay {
 void begin();
 
 // Switches to the next/previous clock face (rainbow grid -> retro LED
-// display -> Custom -> Video -> Photo -> Botanical -> back to rainbow
-// grid, or the reverse). Call from a button tap; takes effect on the next
-// update() call.
+// display -> Custom -> Video -> Photo -> Botanical -> Deco -> back to
+// rainbow grid, or the reverse). Call from a button tap; takes effect on
+// the next update() call.
 void nextFace();
 void prevFace();
 

@@ -4,6 +4,7 @@
 #include "video_player.h"
 #include "PhotoDigits.h"
 #include "BotanicalDigits.h"
+#include "DecoDigits.h"
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
 #include "BebasDigits123.h"
@@ -27,7 +28,8 @@ TFT_eSprite mdaySpr(&tft);
 TFT_eSprite weekSpr(&tft);
 TFT_eSprite doySpr(&tft);
 TFT_eSprite wifiSpr(&tft);
-TFT_eSprite photoDigitSpr(&tft); // Photo face only - see drawPhotoRow()
+TFT_eSprite photoDigitSpr(&tft); // Photo/Botanical faces - see drawPhotoRow()
+TFT_eSprite decoDigitSpr(&tft);  // Deco face only - see drawDecoRow()
 
 // ---- Theme colours (approximating the reference photo) -------------
 const uint16_t COL_BG        = TFT_BLACK;
@@ -178,7 +180,8 @@ enum ClockFaceId {
   FACE_VIDEO = 3,
   FACE_PHOTO = 4,
   FACE_BOTANICAL = 5,
-  FACE_COUNT = 6
+  FACE_DECO = 6,
+  FACE_COUNT = 7
 };
 int currentFace = FACE_RAINBOW_GRID;
 
@@ -571,6 +574,75 @@ void drawPhotoRow(const char *buf, bool colonVisible) {
   }
 }
 
+// ---- Deco face ----------------------------------------------------------
+// Fullscreen Art Deco outline digits: a slender white letterform on black,
+// no status bar at all (like Video Face) so the whole 320x170 screen is
+// free for the clock. Same fixed-slot-width scaling approach as the Photo
+// faces above (DecoDigits.h's widest digit, "4" at ~0.83 aspect, still
+// can't grow past ~57px tall for 6 digits to fit 320px wide - freeing up
+// the status bar's 30px doesn't help a *width*-bound layout, it just
+// leaves more black margin above/below), kept as its own separate sizing/
+// sprite/layout rather than folding into photoSlotW/PHOTO_H, since those
+// are computed against CLOCK_H and reserve the status bar row this face
+// doesn't have.
+const int DECO_GAP = 2;
+const int DECO_COLON_W = 8;
+const int DECO_H = 57;
+int decoSlotW = 0;
+int decoRowStartX = 0;
+int decoRowY = 0;
+
+int decoScaledWidth(int d) {
+  const PhotoDigit &pd = DECO_DIGITS[d];
+  return (pd.w * DECO_H + pd.h - 1) / pd.h; // ceil
+}
+
+void drawDecoDigitToSprite(int d) {
+  const PhotoDigit &pd = DECO_DIGITS[d];
+  int sw = decoScaledWidth(d);
+  for (int y = 0; y < DECO_H; y++) {
+    int sy = (y * pd.h) / DECO_H;
+    const uint16_t *row = pd.data + (size_t)sy * pd.w;
+    for (int x = 0; x < decoSlotW; x++) {
+      if (x >= sw) {
+        decoDigitSpr.drawPixel(x, y, COL_BG);
+        continue;
+      }
+      int sx = (x * pd.w) / sw;
+      decoDigitSpr.drawPixel(x, y, pgm_read_word(&row[sx]));
+    }
+  }
+}
+
+void drawDecoColon(int x, bool visible) {
+  tft.fillRect(x, decoRowY, DECO_COLON_W, DECO_H, COL_BG);
+  if (visible) {
+    int cx = x + DECO_COLON_W / 2;
+    int cy = decoRowY + DECO_H / 2;
+    int r = max(3, DECO_COLON_W / 3);
+    int gap = DECO_H / 5;
+    tft.fillSmoothCircle(cx, cy - gap, r, TFT_WHITE, COL_BG);
+    tft.fillSmoothCircle(cx, cy + gap, r, TFT_WHITE, COL_BG);
+  }
+}
+
+void drawDecoRow(const char *buf, bool colonVisible) {
+  tft.fillScreen(COL_BG);
+  int x = decoRowStartX;
+  int idx = 0;
+  for (int slot = 0; slot < 8; slot++) {
+    if (slot == 2 || slot == 5) {
+      drawDecoColon(x, colonVisible);
+      x += DECO_COLON_W + DECO_GAP;
+    } else {
+      int d = buf[idx++] - '0';
+      drawDecoDigitToSprite(d);
+      decoDigitSpr.pushSprite(x, decoRowY);
+      x += decoSlotW + DECO_GAP;
+    }
+  }
+}
+
 // Copies a CELL_DIGIT_W (or CELL_COLON_W)-wide, CLOCK_H-tall slice of the
 // cached Custom Face background at column x into spr, pixel by pixel.
 // Deliberately uses drawPixel() rather than pushImage(): drawPixel() is
@@ -776,6 +848,7 @@ void begin() {
   doySpr.setColorDepth(16);
   wifiSpr.setColorDepth(16);
   photoDigitSpr.setColorDepth(16);
+  decoDigitSpr.setColorDepth(16);
 
   digitSpr.createSprite(CELL_DIGIT_W, CLOCK_H);
   colonSpr.createSprite(CELL_COLON_W, CLOCK_H);
@@ -793,6 +866,14 @@ void begin() {
   int photoRowW = 6 * photoSlotW + 2 * PHOTO_COLON_W + 7 * PHOTO_GAP;
   photoRowStartX = max(0, (SCR_W - photoRowW) / 2);
   photoRowY = CLOCK_TOP + (CLOCK_H - PHOTO_H) / 2;
+
+  for (int d = 0; d <= 9; d++) {
+    decoSlotW = max(decoSlotW, decoScaledWidth(d));
+  }
+  decoDigitSpr.createSprite(decoSlotW, DECO_H);
+  int decoRowW = 6 * decoSlotW + 2 * DECO_COLON_W + 7 * DECO_GAP;
+  decoRowStartX = max(0, (SCR_W - decoRowW) / 2);
+  decoRowY = (SCR_H - DECO_H) / 2;
 
   ensureDigitFont(); // loads FredokaDigits87 for the default rainbow face
 
@@ -935,6 +1016,17 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
       drawPhotoRow(buf, colonVisible);
       for (int i = 0; i < 6; i++) lastDigit[i] = buf[i];
     }
+  } else if (currentFace == FACE_DECO) {
+    // Same fixed-slot, redraw-the-whole-row-on-any-change approach as
+    // Photo/Botanical above, just fullscreen (see drawDecoRow()).
+    bool changed = (colonVisible != lastColonVisible);
+    for (int i = 0; i < 6; i++) {
+      if (lastDigit[i] != buf[i]) changed = true;
+    }
+    if (changed) {
+      drawDecoRow(buf, colonVisible);
+      for (int i = 0; i < 6; i++) lastDigit[i] = buf[i];
+    }
   } else {
     const char *src = buf;
     int srcIdx = 0;
@@ -954,11 +1046,10 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
   }
   lastColonVisible = colonVisible;
 
-  // Video Face uses the full screen (see its branch above, which draws
-  // 0..SCR_H rather than the usual CLOCK_TOP..CLOCK_H) instead of the
-  // status bar + digit area every other face shares, so none of that
-  // applies while it's active.
-  if (currentFace == FACE_VIDEO) return;
+  // Video and Deco use the full screen (0..SCR_H rather than the usual
+  // CLOCK_TOP..CLOCK_H) instead of the status bar + digit area every
+  // other face shares, so none of that applies while either is active.
+  if (currentFace == FACE_VIDEO || currentFace == FACE_DECO) return;
 
   // ---- year badge ----
   char yearBuf[5];
