@@ -123,6 +123,7 @@ firmware/ESP32_WiFi_Clock/
   sd_card.h/.cpp           - optional SD card module (SD/SPI, ships with the ESP32 core)
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
 tools/make_digit_font.html   - traces photos into a compilable digit font (.h)
+tools/preview/               - renders the weather/calendar screens to PNG on the host, no device needed (see tools/preview/README.md)
 .github/workflows/build-firmware.yml - CI build producing a flashable .bin
 ```
 
