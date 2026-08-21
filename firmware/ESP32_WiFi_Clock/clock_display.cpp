@@ -135,6 +135,24 @@ const BadgeTheme THEME_SILVER = {
   COL_SILVER_BADGE, COL_SILVER_TEXT,   // wifi
 };
 
+// Flip Clock face: split-flap "departure board" cards - a light card face
+// on a slate-grey page, matching the badges to that same page colour (the
+// same "background matches the badges" pattern Botanical's green and
+// Photo's white already use, just with a darker page than either).
+const uint16_t COL_FLIP_BG    = tft.color565(58, 61, 68);   // page behind the cards
+const uint16_t COL_FLIP_CARD  = tft.color565(235, 236, 240); // card face
+const uint16_t COL_FLIP_TEXT  = tft.color565(30, 32, 38);    // digit ink
+const uint16_t COL_FLIP_HINGE = tft.color565(150, 153, 160); // fold shadow line
+const uint16_t COL_FLIP_BADGE_TXT = tft.color565(225, 227, 232);
+const BadgeTheme THEME_FLIP = {
+  COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // year
+  COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // month
+  COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // day
+  COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // week
+  COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // day-of-year
+  COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // wifi
+};
+
 // ---- Layout -----------------------------------------------------------
 const int SCR_W = TFT_SCREEN_WIDTH;
 const int SCR_H = TFT_SCREEN_HEIGHT;
@@ -196,7 +214,8 @@ enum ClockFaceId {
   FACE_PHOTO = 3,
   FACE_BOTANICAL = 4,
   FACE_SILVER = 5,
-  FACE_COUNT = 6
+  FACE_FLIP = 6,
+  FACE_COUNT = 7
 };
 int currentFace = FACE_RAINBOW_GRID;
 
@@ -205,6 +224,7 @@ const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_PHOTO) return THEME_PHOTO;
   if (currentFace == FACE_BOTANICAL) return THEME_BOTANICAL;
   if (currentFace == FACE_SILVER) return THEME_SILVER;
+  if (currentFace == FACE_FLIP) return THEME_FLIP;
   return THEME_RAINBOW;
 }
 
@@ -218,13 +238,11 @@ bool badgeGlossActive() { return currentFace == FACE_SILVER; }
 char lastDigit[CELL_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0};
 bool gridDrawn = false;
 
-// Rainbow grid face only: rolling digit transition, like a train of digits
-// on a vertical rail track - the old digit slides up and off the top of
-// the cell while the new one rises up from below to take its place,
-// rather than the old instant swap every other face still uses. Modelled
-// as a single strip holding both digits (old at the cell's normal centre,
-// new one full cell-height below it) that slides upward by `progress` of
-// the cell height - see drawRainbowGridDigitCellAnimated().
+// Digit transition animations - Rainbow Grid (rolling) and Flip Clock
+// (split-flap), each with their own timing but sharing this one per-cell
+// state and the same start/finish bookkeeping in update() below (see the
+// FACE_RAINBOW_GRID/FACE_FLIP branch there). Every other face still does
+// the old instant swap.
 struct DigitAnim {
   char fromCh = 0;
   char toCh = 0;
@@ -232,7 +250,15 @@ struct DigitAnim {
   bool active = false;
 };
 DigitAnim digitAnims[CELL_COUNT];
+// Rainbow Grid: like a train of digits on a vertical rail track - the old
+// digit slides up and off the top of the cell while the new one rises up
+// from below to take its place. Modelled as a single strip holding both
+// digits (old at the cell's normal centre, new one full cell-height below
+// it) that slides upward by `progress` of the cell height - see
+// drawRainbowGridDigitCellAnimated().
 const unsigned long DIGIT_ANIM_MS = 220;
+// Flip Clock: a real split-flap card - see drawFlipDigitCellAnimated().
+const unsigned long FLIP_ANIM_MS = 380;
 String lastDateStr = "\x01";       // year badge cache
 String lastMonthDayStr = "\x01";   // month/day badge cache
 String lastWeekStr = "\x01";
@@ -365,6 +391,90 @@ void drawRainbowGridDigitCellAnimated(int col, char fromCh, char toCh, float pro
   digitSpr.drawString(String(fromCh), CELL_DIGIT_W / 2, CLOCK_H / 2 - offset);
   digitSpr.drawString(String(toCh), CELL_DIGIT_W / 2, CLOCK_H / 2 - offset + CLOCK_H);
   applyDigitGloss(digitSpr, CELL_DIGIT_W, CLOCK_H);
+  digitSpr.pushSprite(x, CLOCK_TOP);
+}
+
+// ---- Flip Clock face -----------------------------------------------------
+// A split-flap "departure board" card per digit: a light card face split
+// in two by a hinge line, on the slate-grey page. There's no true 3D
+// rotation on a 2D panel, so the flip is approximated the way most
+// software recreations do it - a vertical crop rather than a true
+// perspective squish - but anchored at the hinge so it still reads as a
+// card folding there rather than a curtain closing:
+//   - the TOP half's background is always the settling-in NEW digit
+//     (like the real board's fixed upper leaf, already updated);
+//   - the BOTTOM half's background is always the outgoing OLD digit
+//     (not yet replaced);
+//   - a single flap animates in two phases, hinged at the seam the whole
+//     time: phase 1 (0-50%) collapses the OLD top half down into the
+//     hinge, uncovering the new top background as it shrinks; phase 2
+//     (50-100%) grows a NEW bottom half back out of the hinge, covering
+//     the old bottom background as it expands.
+// Horizontal clipping is left at the full cell width (proven safe for
+// this font - see the CELL_DIGIT_W comment above) even though the card
+// itself is drawn narrower, so the widest glyphs never get clipped.
+const int FLIP_MARGIN_X = 2; // gap between adjacent digit cards
+const int FLIP_MARGIN_Y = 3; // gap above/below each card within its cell
+
+void drawFlipDigitCell(int col, char ch) {
+  int x = colX(col);
+  int cardX = FLIP_MARGIN_X, cardY = FLIP_MARGIN_Y;
+  int cardW = CELL_DIGIT_W - 2 * FLIP_MARGIN_X;
+  int cardH = CLOCK_H - 2 * FLIP_MARGIN_Y;
+
+  digitSpr.fillSprite(COL_FLIP_BG);
+  digitSpr.fillRoundRect(cardX, cardY, cardW, cardH, 4, COL_FLIP_CARD);
+  digitSpr.setTextDatum(MC_DATUM);
+  digitSpr.setTextColor(COL_FLIP_TEXT, COL_FLIP_CARD);
+  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, cardY + cardH / 2);
+  digitSpr.fillRect(cardX, cardY + cardH / 2 - 1, cardW, 2, COL_FLIP_HINGE);
+  digitSpr.pushSprite(x, CLOCK_TOP);
+}
+
+void drawFlipDigitCellAnimated(int col, char fromCh, char toCh, float progress) {
+  int x = colX(col);
+  int cardX = FLIP_MARGIN_X, cardY = FLIP_MARGIN_Y;
+  int cardW = CELL_DIGIT_W - 2 * FLIP_MARGIN_X;
+  int cardH = CLOCK_H - 2 * FLIP_MARGIN_Y;
+  int halfH = cardH / 2;
+  int halfH2 = cardH - halfH;
+  int hingeY = cardY + halfH;
+  int textCy = cardY + cardH / 2; // true full-card centre every glyph is drawn around
+
+  digitSpr.fillSprite(COL_FLIP_BG);
+  digitSpr.fillRoundRect(cardX, cardY, cardW, cardH, 4, COL_FLIP_CARD);
+  digitSpr.setTextDatum(MC_DATUM);
+  digitSpr.setTextColor(COL_FLIP_TEXT, COL_FLIP_CARD);
+
+  // Resting backgrounds: top has already settled on the new digit, bottom
+  // hasn't changed yet - only the flap in between is still moving.
+  digitSpr.setViewport(0, cardY, CELL_DIGIT_W, halfH);
+  digitSpr.drawString(String(toCh), CELL_DIGIT_W / 2, textCy);
+  digitSpr.resetViewport();
+
+  digitSpr.setViewport(0, hingeY, CELL_DIGIT_W, halfH2);
+  digitSpr.drawString(String(fromCh), CELL_DIGIT_W / 2, textCy);
+  digitSpr.resetViewport();
+
+  bool phase1 = progress < 0.5f;
+  float p = phase1 ? (progress / 0.5f) : ((progress - 0.5f) / 0.5f);
+  if (phase1) {
+    int flapH = (int)roundf(halfH * (1.0f - p));
+    if (flapH > 0) {
+      digitSpr.setViewport(0, hingeY - flapH, CELL_DIGIT_W, flapH);
+      digitSpr.drawString(String(fromCh), CELL_DIGIT_W / 2, textCy);
+      digitSpr.resetViewport();
+    }
+  } else {
+    int flapH = (int)roundf(halfH2 * p);
+    if (flapH > 0) {
+      digitSpr.setViewport(0, hingeY, CELL_DIGIT_W, flapH);
+      digitSpr.drawString(String(toCh), CELL_DIGIT_W / 2, textCy);
+      digitSpr.resetViewport();
+    }
+  }
+
+  digitSpr.fillRect(cardX, hingeY - 1, cardW, 2, COL_FLIP_HINGE);
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
@@ -566,6 +676,8 @@ void drawPhotoRow(const char *buf, bool colonVisible) {
 void drawDigitCell(int col, char ch) {
   if (currentFace == FACE_SEVEN_SEG) {
     drawSevenSegDigitCell(col, ch);
+  } else if (currentFace == FACE_FLIP) {
+    drawFlipDigitCell(col, ch);
   } else {
     drawRainbowGridDigitCell(col, ch);
   }
@@ -573,14 +685,15 @@ void drawDigitCell(int col, char ch) {
 
 void drawColonCell(int col, bool visible) {
   int x = colX(col);
-  colonSpr.fillSprite(COL_BG);
+  uint16_t bg = (currentFace == FACE_FLIP) ? COL_FLIP_BG : COL_BG;
+  colonSpr.fillSprite(bg);
   if (visible) {
     int cx = CELL_COLON_W / 2;
     int cy = CLOCK_H / 2;
     int r = max(3, CELL_COLON_W / 6);
     int gap = CLOCK_H / 6;
-    colonSpr.fillSmoothCircle(cx, cy - gap, r, COL_COLON, COL_BG);
-    colonSpr.fillSmoothCircle(cx, cy + gap, r, COL_COLON, COL_BG);
+    colonSpr.fillSmoothCircle(cx, cy - gap, r, COL_COLON, bg);
+    colonSpr.fillSmoothCircle(cx, cy + gap, r, COL_COLON, bg);
   }
   colonSpr.pushSprite(x, CLOCK_TOP);
 }
@@ -897,25 +1010,30 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
         continue;
       }
       char ch = src[srcIdx++];
-      if (currentFace == FACE_RAINBOW_GRID) {
+      bool animatedFace = (currentFace == FACE_RAINBOW_GRID || currentFace == FACE_FLIP);
+      if (animatedFace) {
         if (lastDigit[col] != ch) {
           if (lastDigit[col] == 0) {
             // First draw for this cell (just reset/switched to) - no
-            // previous digit to roll away from, so draw it directly.
-            drawRainbowGridDigitCell(col, ch);
+            // previous digit to animate from, so draw it directly.
+            drawDigitCell(col, ch);
           } else {
             digitAnims[col] = {lastDigit[col], ch, millis(), true};
           }
           lastDigit[col] = ch;
         }
         if (digitAnims[col].active) {
+          unsigned long durMs = (currentFace == FACE_FLIP) ? FLIP_ANIM_MS : DIGIT_ANIM_MS;
           unsigned long elapsed = millis() - digitAnims[col].startMs;
-          if (elapsed >= DIGIT_ANIM_MS) {
+          if (elapsed >= durMs) {
             digitAnims[col].active = false;
-            drawRainbowGridDigitCell(col, digitAnims[col].toCh);
+            drawDigitCell(col, digitAnims[col].toCh);
+          } else if (currentFace == FACE_FLIP) {
+            drawFlipDigitCellAnimated(col, digitAnims[col].fromCh, digitAnims[col].toCh,
+                                       (float)elapsed / durMs);
           } else {
             drawRainbowGridDigitCellAnimated(col, digitAnims[col].fromCh, digitAnims[col].toCh,
-                                              (float)elapsed / DIGIT_ANIM_MS);
+                                              (float)elapsed / durMs);
           }
         }
       } else if (lastDigit[col] != ch) {

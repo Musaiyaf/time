@@ -235,7 +235,7 @@ from its row, no submenu needed - shows its current ON/OFF state), and
 **About**.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between six clock faces: the rainbow grid face, where each digit
+cycle between seven clock faces: the rainbow grid face, where each digit
 rolls to its next value like a train on a vertical rail track - the old
 digit slides up and off the top of its cell while the new one rises from
 below to take its place, rather than the instant swap every other face
@@ -254,9 +254,12 @@ sampled from that same artwork, with a matching green status bar and
 cream text; and [**Silver**](#silver-face), chrome-gradient numerals with
 a soft glow on a plain black background, with a matching gunmetal status
 bar that gets the same glossy top-edge highlight as the digits
-themselves. The status bar re-skins to match whichever face is active
-(or hides entirely on Video). The choice isn't saved across a power
-cycle - it always starts on the rainbow grid face.
+themselves; and [**Flip Clock**](#flip-clock-face), a split-flap
+"departure board" face where each digit is an actual two-part card that
+flips to its next value, on a slate-grey page matching the status bar.
+The status bar re-skins to match whichever face is active (or hides
+entirely on Video). The choice isn't saved across a power cycle - it
+always starts on the rainbow grid face.
 
 ### Video Wallpaper
 
@@ -318,6 +321,22 @@ gunmetal fill (`COL_SILVER_BADGE`) rather than the usual per-face flat
 colour, plus a glossy highlight across its top edge - the same brightening
 pass (`applyDigitGloss()`) the rainbow grid face already uses on its own
 digit cells, reused here so the badges visibly "shine" like the digits do.
+
+### Flip Clock Face
+
+A split-flap "departure board" face: each digit is a two-part card (a
+light face on a slate-grey page, matching the status bar to that same
+page colour) with a hinge line through the middle, and changing to its
+next value is an actual flip rather than the instant swap most faces
+use. There's no true 3D rotation on a 2D panel, so it's approximated the
+way most software recreations do it - a vertical crop anchored at the
+hinge rather than a perspective squish - in two phases
+(`drawFlipDigitCellAnimated()` in `clock_display.cpp`): the old top half
+collapses down into the hinge, uncovering the new digit's top half
+underneath as it shrinks; then a new bottom half grows back out of the
+hinge, covering the old digit's bottom half as it expands. Reuses the
+same digit font as the rainbow grid face - no extra flash cost - and the
+same per-cell grid every face but Photo/Botanical/Silver already shares.
 
 ### Weather
 
