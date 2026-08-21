@@ -82,6 +82,22 @@ says there's no card if nothing answers. Change `SD_SCLK_PIN`/
 `SD_MISO_PIN`/`SD_MOSI_PIN`/`SD_CS_PIN` in `config.h` if you wire it to
 different GPIOs.
 
+### Optional: piezo buzzer (button clicks)
+
+| Buzzer pin | ESP32-S3 GPIO |
+|---|---|
+| Signal | 6 |
+| VCC | 3V3 |
+| GND | GND |
+
+A short click on every button press - LEFT/RIGHT/OK, anywhere in the
+firmware, not just the settings menu. Not wiring one up is harmless (an
+unwired GPIO output does nothing) but there's no probe for it like the
+RTC/SD card get, since a passive buzzer has no way to answer one -
+instead just leave it off from **Settings → Button Sound**, which
+persists across a power cycle. Change `BUZZER_PIN` in `config.h` if you
+wire it to a different GPIO.
+
 ### Buttons
 
 Three momentary pushbuttons, each wired between a GPIO and GND (the
@@ -121,6 +137,7 @@ firmware/ESP32_WiFi_Clock/
   tz_database.h           - ~430 IANA zones grouped by continent, for menu.cpp
   rtc_backup.h/.cpp        - optional DS3231 backup RTC over I2C (raw Wire, no library)
   sd_card.h/.cpp           - optional SD card module (SD/SPI, ships with the ESP32 core)
+  buzzer.h/.cpp            - optional piezo buzzer: a click on every button press
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
 tools/make_digit_font.html   - traces photos into a compilable digit font (.h)
 tools/preview/               - renders the weather/calendar screens to PNG on the host, no device needed (see tools/preview/README.md)
@@ -209,6 +226,13 @@ most phones, Macs and Linux; some Windows/router setups don't support it,
 in which case use the IP address from the on-device **About** screen or
 your router's client list instead). Reflash, hold OK for 3s at power-up, or
 use the on-device WiFi menu item to reconnect to a different network.
+
+**Settings menu:** a scrollable list (LEFT/RIGHT to move, OK to open),
+the same style as the SD Card browser - **WiFi**, **Time Zone**,
+**Date/Time**, **Weather City**, **Button Sound** (toggles the
+[optional buzzer](#optional-piezo-buzzer-button-clicks)'s click straight
+from its row, no submenu needed - shows its current ON/OFF state), and
+**About**.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
 cycle between six clock faces: the rainbow grid face; a retro LED face

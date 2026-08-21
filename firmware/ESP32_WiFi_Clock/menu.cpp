@@ -6,6 +6,7 @@
 #include "calendar_events.h"
 #include "tz_database.h"
 #include "sd_card.h"
+#include "buzzer.h"
 #include <WiFi.h>
 
 namespace {
@@ -75,6 +76,7 @@ struct Btn {
     int r = digitalRead(pin);
     if (edgeMissed && r == HIGH && stable == HIGH) {
       tap = true;
+      Buzzer::click();
       return;
     }
 
@@ -87,6 +89,7 @@ struct Btn {
       if (stable == LOW) {
         downAtMs = now;
         longFired = false;
+        Buzzer::click(); // click on press-down, not release - feels immediate
       } else if (!longFired && now - downAtMs < LONG_PRESS_MS) {
         tap = true;
       }
@@ -135,6 +138,7 @@ const uint16_t COL_ICON_BACK = rgb565(255, 79, 163);  // pink
 const uint16_t COL_ICON_DATETIME = rgb565(140, 255, 150); // mint green
 const uint16_t COL_ICON_SD = rgb565(255, 210, 60);    // gold
 const uint16_t COL_ICON_WEATHER = rgb565(120, 190, 255); // sky blue
+const uint16_t COL_ICON_BUZZER = rgb565(190, 140, 255);  // violet
 
 // ---- menu state -------------------------------------------------------
 // CLOCK -> MAIN (3 icon tiles: SD Card, Settings, Back) -> SETTINGS (text
@@ -151,11 +155,19 @@ const char *const MAIN_LABELS[MAIN_TILE_COUNT] = {"SD Card", "Settings", "Back"}
 const uint16_t MAIN_COLORS[MAIN_TILE_COUNT] = {COL_ICON_SD, COL_SETTINGS_ACCENT, COL_ICON_BACK};
 int mainIndex = 0;
 
-const int SETTINGS_COUNT = 5;
-const char *const SETTINGS_LABELS[SETTINGS_COUNT] = {"WiFi", "Time Zone", "Date/Time", "Weather City", "About"};
+const int SETTINGS_COUNT = 6;
+const char *const SETTINGS_LABELS[SETTINGS_COUNT] = {"WiFi", "Time Zone", "Date/Time", "Weather City",
+                                                       "Button Sound", "About"};
 const uint16_t SETTINGS_COLORS[SETTINGS_COUNT] = {COL_ICON_WIFI, COL_ICON_TZ, COL_ICON_DATETIME,
-                                                   COL_ICON_WEATHER, COL_SETTINGS_ACCENT};
+                                                   COL_ICON_WEATHER, COL_ICON_BUZZER, COL_SETTINGS_ACCENT};
+const int SETTINGS_IDX_BUZZER = 4;
 int settingsIndex = 0;
+
+// Shared by every scrollable list screen (Settings, the SD card browser) -
+// a coloured heading bar with a position indicator, then full-width rows
+// with the selected one drawn as a solid highlight pill.
+const int LIST_ROW_H = 19;
+const int LIST_TOP = 28;
 
 int continentIndex = 0;
 int zoneIndex = 0; // index within TZ_ZONES for the current continent
@@ -297,17 +309,57 @@ void drawMainTiles() {
   tft.setFreeFont(nullptr);
 }
 
+// Settings as a real scrollable list (same visual pattern as the SD card
+// browser's drawSdList() below: coloured heading + position, full-width
+// rows, the selected one a solid pill) rather than one item centred at a
+// time - all 6 entries fit without needing that screen's scroll window.
+// Each row keeps its item's own accent colour (COL_ICON_WIFI etc.) as its
+// selected-pill colour, the same identity those colours already carry
+// elsewhere, rather than one flat colour for every row.
+void drawSettingsList() {
+  TFT_eSPI &tft = ClockDisplay::rawDisplay();
+  const int W = TFT_SCREEN_WIDTH;
+  tft.fillScreen(COL_BG);
+
+  tft.fillRect(0, 0, W, 26, COL_HEADING_BG);
+  tft.setFreeFont(&FreeSansBold9pt7b);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(COL_HEADING_TXT, COL_HEADING_BG);
+  tft.drawString("SETTINGS", W / 2, 13);
+  tft.setTextDatum(MR_DATUM);
+  tft.drawString(String(settingsIndex + 1) + "/" + String(SETTINGS_COUNT), W - 6, 13);
+
+  for (int i = 0; i < SETTINGS_COUNT; i++) {
+    int y = LIST_TOP + i * LIST_ROW_H;
+    bool sel = (i == settingsIndex);
+    uint16_t rowBg = sel ? SETTINGS_COLORS[i] : COL_BG;
+    uint16_t txtColor = sel ? COL_BG : TFT_WHITE;
+
+    if (sel) tft.fillRect(0, y, W, LIST_ROW_H, rowBg);
+    tft.setTextColor(txtColor, rowBg);
+    tft.setTextDatum(ML_DATUM);
+    tft.drawString(SETTINGS_LABELS[i], 8, y + LIST_ROW_H / 2);
+
+    if (i == SETTINGS_IDX_BUZZER) {
+      tft.setTextDatum(MR_DATUM);
+      tft.drawString(Buzzer::isEnabled() ? "ON" : "OFF", W - 8, y + LIST_ROW_H / 2);
+    }
+  }
+
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(COL_HINT_TXT, COL_BG);
+  tft.drawString(HINT_NAV, W / 2, TFT_SCREEN_HEIGHT - 10);
+  tft.setFreeFont(nullptr);
+}
+
 void render() {
   switch (state) {
     case ST_MAIN:
       drawMainTiles();
       break;
-    case ST_SETTINGS: {
-      String pos = String(settingsIndex + 1) + " / " + String(SETTINGS_COUNT);
-      drawScreen("SETTINGS", COL_HEADING_BG, COL_HEADING_TXT,
-                 SETTINGS_LABELS[settingsIndex], SETTINGS_COLORS[settingsIndex], pos, HINT_NAV);
+    case ST_SETTINGS:
+      drawSettingsList();
       break;
-    }
     case ST_CONTINENT: {
       String pos = String(continentIndex + 1) + " / " + String(TZ_CONTINENT_COUNT);
       uint16_t accent = TZ_CONTINENT_COLORS[continentIndex];
@@ -565,10 +617,10 @@ String sdParentPath(const String &path) {
 // file browser) rather than one-entry-at-a-time - the SD card is the one
 // place in this menu where you might be picking from dozens of entries, so
 // stepping through them one by one doesn't scale the way it does for a
-// handful of menu items.
-const int SD_ROW_H = 19;
-const int SD_LIST_TOP = 28;
-const int SD_VISIBLE_ROWS = (TFT_SCREEN_HEIGHT - SD_LIST_TOP - 20) / SD_ROW_H;
+// handful of menu items. Shares LIST_ROW_H/LIST_TOP with Settings' own
+// list screen (see drawSettingsList() above); only this one also needs a
+// scroll window, since a folder can hold far more entries than fit at once.
+const int SD_VISIBLE_ROWS = (TFT_SCREEN_HEIGHT - LIST_TOP - 20) / LIST_ROW_H;
 
 void drawSdList(const String &path, SdCard::Entry *entries, int count, int idx,
                  const char *hint = "< > move   OK open   hold back") {
@@ -588,7 +640,7 @@ void drawSdList(const String &path, SdCard::Entry *entries, int count, int idx,
   if (count == 0) {
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(COL_ITEM_TXT_DIM, COL_BG);
-    tft.drawString("(empty)", TFT_SCREEN_WIDTH / 2, SD_LIST_TOP + 40);
+    tft.drawString("(empty)", TFT_SCREEN_WIDTH / 2, LIST_TOP + 40);
   } else {
     int windowStart = 0;
     if (count > SD_VISIBLE_ROWS) {
@@ -599,19 +651,19 @@ void drawSdList(const String &path, SdCard::Entry *entries, int count, int idx,
 
     for (int i = 0; i < rowsToShow; i++) {
       int entryIdx = windowStart + i;
-      int y = SD_LIST_TOP + i * SD_ROW_H;
+      int y = LIST_TOP + i * LIST_ROW_H;
       bool sel = (entryIdx == idx);
       const SdCard::Entry &e = entries[entryIdx];
       uint16_t rowBg = sel ? COL_ICON_SD : COL_BG;
       uint16_t txtColor = sel ? COL_BG : (e.isDir ? TFT_WHITE : COL_ITEM_TXT_DIM);
 
-      if (sel) tft.fillRect(0, y, TFT_SCREEN_WIDTH, SD_ROW_H, rowBg);
+      if (sel) tft.fillRect(0, y, TFT_SCREEN_WIDTH, LIST_ROW_H, rowBg);
       tft.setTextColor(txtColor, rowBg);
       tft.setTextDatum(ML_DATUM);
-      tft.drawString(e.isDir ? ("[DIR] " + e.name) : e.name, 8, y + SD_ROW_H / 2);
+      tft.drawString(e.isDir ? ("[DIR] " + e.name) : e.name, 8, y + LIST_ROW_H / 2);
       if (!e.isDir) {
         tft.setTextDatum(MR_DATUM);
-        tft.drawString(formatSize(e.size), TFT_SCREEN_WIDTH - 8, y + SD_ROW_H / 2);
+        tft.drawString(formatSize(e.size), TFT_SCREEN_WIDTH - 8, y + LIST_ROW_H / 2);
       }
     }
   }
@@ -1437,6 +1489,9 @@ bool handle() {
           dirty = true;
         } else if (settingsIndex == 3) {
           runCityEntry(); // blocking; redraws Settings once it's done
+          dirty = true;
+        } else if (settingsIndex == SETTINGS_IDX_BUZZER) {
+          Buzzer::setEnabled(!Buzzer::isEnabled()); // toggles in place, no submenu
           dirty = true;
         } else {
           state = ST_ABOUT;

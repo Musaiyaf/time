@@ -47,6 +47,7 @@
 #include "sd_card.h"
 #include "weather.h"
 #include "calendar_events.h"
+#include "buzzer.h"
 
 WebServer server(80);
 DNSServer dnsServer;
@@ -86,6 +87,7 @@ void setup() {
   WifiManager::begin();
   Weather::begin();          // loads the saved weather city, if one is set
   CalendarEvents::begin();   // holidays are fetched fresh once online
+  Buzzer::begin();           // loads the saved on/off state for button clicks
 
   // Hold the OK button for 3s right after boot to wipe saved WiFi. This
   // only runs once, here, before Menu::begin() sets up button polling for

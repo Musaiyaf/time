@@ -34,6 +34,10 @@
 #define BTN_RIGHT_PIN 5
 #define BTN_OK_PIN    0   // BOOT button on most ESP32-S3 dev boards
 
+// Optional piezo buzzer, signal pin to GND-referenced GPIO (see buzzer.h) -
+// a short click on every button press, toggled on/off from Settings.
+#define BUZZER_PIN 6
+
 // Hold BTN_OK_PIN LOW (button to GND) for 3s right after power-up to wipe
 // the saved WiFi credentials and force the setup Access Point back on.
 // This is separate from (and checked before) the menu system below - it
