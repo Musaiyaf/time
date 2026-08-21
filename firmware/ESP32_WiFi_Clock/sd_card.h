@@ -29,19 +29,6 @@ struct Entry {
 // directory.
 int listDir(const String &path, Entry *out, int maxEntries);
 
-// Reads a whole small text file (e.g. a Custom Face's face.cfg) into a
-// String. Returns "" if there's no card or the file doesn't exist -
-// callers can't tell that apart from a genuinely empty file, which is
-// fine for the key=value config files this is meant for.
-String readTextFile(const String &path);
-
-// Reads a raw RGB565 image - width*height native-endian uint16_t pixel
-// values, no header, row-major - from path into the caller-allocated out
-// buffer (must hold at least width*height uint16_t's). Returns false
-// (leaving out untouched) if there's no card, the file's missing, or
-// it's shorter than expected. Used for Custom Face backgrounds.
-bool readImage(const String &path, uint16_t *out, int width, int height);
-
 // Reads up to len raw bytes starting at byte offset within path into out.
 // Opens and closes the file on every call, so it's only good for one-off
 // reads (e.g. Video Face's header parsing) - repeated per-frame playback

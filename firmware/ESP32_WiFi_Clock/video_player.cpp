@@ -24,14 +24,12 @@ size_t frameBufSize = 0;
 // Frame data is staged into frameBuf above, then copied pixel-by-pixel
 // into this sprite and pushed via TFT_eSprite::pushSprite() - deliberately
 // NOT tft.pushImage(frameBuf) directly, even though frameBuf already holds
-// correctly-ordered RGB565 data. This codebase hit that exact failure
-// mode once before, in Custom Face's background rendering (see
-// clock_display.cpp's pushCustomBgSlice() comment): pushImage() of a
-// large raw buffer produced scrambled "TV static" colours even with
-// swap-bytes reset first, for reasons that were never fully pinned down -
-// only going through a sprite's drawPixel()/pushSprite() (proven correct;
-// every other face already does exactly this for its own content) turned
-// out to sidestep it entirely. Lazily created because it needs a TFT_eSPI*
+// correctly-ordered RGB565 data. pushImage() of a large raw buffer
+// produced scrambled "TV static" colours even with swap-bytes reset
+// first, for reasons that were never fully pinned down - only going
+// through a sprite's drawPixel()/pushSprite() (proven correct; every
+// other face already does exactly this for its own content) turned out
+// to sidestep it entirely. Lazily created because it needs a TFT_eSPI*
 // (only available once draw() is first called, not at static-init time)
 // and, like every other sprite in this firmware, never freed afterwards.
 TFT_eSprite *frameSpr = nullptr;

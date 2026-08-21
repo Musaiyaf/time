@@ -116,8 +116,6 @@ firmware/ESP32_WiFi_Clock/
   rtc_backup.h/.cpp        - optional DS3231 backup RTC over I2C (raw Wire, no library)
   sd_card.h/.cpp           - optional SD card module (SD/SPI, ships with the ESP32 core)
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
-tools/make_custom_face.py    - CLI: builds a Custom Face package for the SD card
-tools/make_custom_face.html  - same, as a no-install, in-browser tool
 tools/make_digit_font.html   - traces photos into a compilable digit font (.h)
 .github/workflows/build-firmware.yml - CI build producing a flashable .bin
 ```
@@ -206,61 +204,21 @@ your router's client list instead). Reflash, hold OK for 3s at power-up, or
 use the on-device WiFi menu item to reconnect to a different network.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between six clock faces: the rainbow grid face; a retro LED face
+cycle between five clock faces: the rainbow grid face; a retro LED face
 (classic digital-alarm-clock style 7-segment digits, bright red on black,
-with a faint ghost of the unlit segments); [**Custom**](#custom-face),
-which shows your own background image and colours from an SD card;
-[**Video**](#video-wallpaper), which loops a short video clip fullscreen;
-[**Photo**](#photo-face), a font-sampler face - each digit *value*
-0-9 is its own real photographed typeface and colour, not one consistent
-font - on a plain white background (several of the digits are themselves
-too dark to read on the black background every other face uses), with a
-matching white status bar; and **Botanical**, illuminated-manuscript
-digits - an orange/red letterform on its own black panel, bordered with
-green vines and small yellow flowers - on a deep vine-green background
-sampled from that same artwork, with a matching green status bar and
-cream text. The status bar re-skins to match whichever face is active
-(or hides entirely on Video). The choice isn't saved across a power
-cycle - it always starts on the rainbow grid face.
-
-### Custom Face
-
-Put two files at `/faces/custom/` on the [SD card](#optional-sd-card-browser):
-
-- `bg.bin` — a 320x140 background image (the clock digit area only - the
-  30px status bar at the top is always solid-colour badges, so an image
-  behind it would never show), raw RGB565 pixels, no header.
-- `face.cfg` — digit/accent colours and digit font, `key=value` text:
-  ```
-  digit_color=#00FFFF
-  accent_color=#FF4FA3
-  font=bebas
-  ```
-  `font` is `bebas` (Bebas Neue - tall/condensed, default) or `fredoka`
-  (rounded, also used by the rainbow grid face) - the only two digit
-  fonts actually compiled into the firmware. A genuinely new third font
-  would mean converting and compiling a new glyph table into the
-  firmware itself - not something either build tool can do on its own.
-
-Two ways to build both from any image - same output either way:
-
-- **`tools/make_custom_face.html`** — no install: open it directly in a
-  browser (double-click the file), pick an image, font and colours, see a
-  live preview (using the real Bebas Neue/Fredoka fonts via Google Fonts),
-  and click to download `bg.bin`/`face.cfg`. Runs entirely client-side,
-  nothing is uploaded anywhere.
-- **`tools/make_custom_face.py`** — for scripting/automation:
-  ```
-  pip install Pillow
-  python3 tools/make_custom_face.py my_background.png --out out \
-      --digit-color "#00FFFF" --accent-color "#FF4FA3" --font bebas
-  ```
-
-Then copy `bg.bin` and `face.cfg` onto the SD card as
-`/faces/custom/bg.bin` and `/faces/custom/face.cfg`, and cycle (LEFT/RIGHT)
-to the Custom face on the clock. No SD card, or nothing at that path, and
-it just falls back to plain white digits on black - never a blank or
-broken screen.
+with a faint ghost of the unlit segments); [**Video**](#video-wallpaper),
+which loops a short video clip fullscreen; [**Photo**](#photo-face), a
+font-sampler face - each digit *value* 0-9 is its own real photographed
+typeface and colour, not one consistent font - on a plain white
+background (several of the digits are themselves too dark to read on
+the black background every other face uses), with a matching white
+status bar; and **Botanical**, illuminated-manuscript digits - an
+orange/red letterform on its own black panel, bordered with green vines
+and small yellow flowers - on a deep vine-green background sampled from
+that same artwork, with a matching green status bar and cream text. The
+status bar re-skins to match whichever face is active (or hides
+entirely on Video). The choice isn't saved across a power cycle - it
+always starts on the rainbow grid face.
 
 ### Video Wallpaper
 
@@ -386,39 +344,37 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
 - **Colors / layout**: badge positions are constants near the top of
   `clock_display.cpp` (`B_YEAR`, `B_MDAY`, `B_WEEK`, `B_DOY`, `B_WIFI`).
   Badge *colours* are per-face, not fixed — each face has its own
-  `BadgeTheme` (`THEME_RAINBOW`, `THEME_LED`, `THEME_CYAN`), and
-  `badgeTheme()` picks the one matching `currentFace`, so the status bar
-  re-skins to match whichever clock face is active instead of staying the
-  same palette on every face. Badges render as separated, rounded-corner
-  pills (`drawPillBadge()` / `carveRoundCorners()`); the month/day badge is
-  a single two-tone pill (`drawMonthDayBadge()`).
-- **Clock digit fonts**: the big HH:MM:SS digits use custom anti-aliased
-  TFT_eSPI "smooth fonts" embedded as byte arrays and loaded at runtime via
+  `BadgeTheme` (`THEME_RAINBOW`, `THEME_LED`, `THEME_PHOTO`,
+  `THEME_BOTANICAL`), and `badgeTheme()` picks the one matching
+  `currentFace`, so the status bar re-skins to match whichever clock face
+  is active instead of staying the same palette on every face. Badges
+  render as separated, rounded-corner pills (`drawPillBadge()` /
+  `carveRoundCorners()`); the month/day badge is a single two-tone pill
+  (`drawMonthDayBadge()`).
+- **Clock digit fonts**: the big HH:MM:SS digits use a custom anti-aliased
+  TFT_eSPI "smooth font" embedded as a byte array and loaded at runtime via
   `digitSpr.loadFont(...)` — no filesystem/SPIFFS needed. The rainbow face
   uses `FredokaDigits87.h` (digits 0-9 rendered from
-  [Fredoka](https://fonts.google.com/specimen/Fredoka) Bold at 87pt);
-  Custom face can pick `BebasDigits123.h` instead (from
-  [Bebas Neue](https://fonts.google.com/specimen/Bebas+Neue) at 123pt — a
-  tall condensed face chosen deliberately for a very different look). Both
-  are OFL-1.1 licensed. To use a different font for one of these two
-  *smooth* (anti-aliased) fonts, rasterize new glyphs into TFT_eSPI's
-  `.vlw` format and regenerate the header; `CELL_DIGIT_W`/`CELL_COLON_W` in
-  `clock_display.cpp` control the cell widths if you need to resize.
-  **Every glyph must be strictly narrower than `CELL_DIGIT_W` (51px)** —
-  TFT_eSPI silently skips drawing a smooth-font glyph too wide for its
-  sprite rather than clipping it, which makes just the wide digits
-  invisible (see Troubleshooting). Alternatively, `tools/make_digit_font.html`
-  traces photos of digits into a *non*-anti-aliased "GFXfont" header (the
-  same format `FreeSansBold9pt7b`/`12pt7b` already use here) entirely in a
-  browser, no Processing/TFT_eSPI tooling needed — a rougher look than a
-  real vector font, but a self-service option that doesn't need a TTF at all.
+  [Fredoka](https://fonts.google.com/specimen/Fredoka) Bold at 87pt, OFL-1.1
+  licensed). To use a different font for this *smooth* (anti-aliased) font,
+  rasterize new glyphs into TFT_eSPI's `.vlw` format and regenerate the
+  header; `CELL_DIGIT_W`/`CELL_COLON_W` in `clock_display.cpp` control the
+  cell widths if you need to resize. **Every glyph must be strictly
+  narrower than `CELL_DIGIT_W` (51px)** — TFT_eSPI silently skips drawing a
+  smooth-font glyph too wide for its sprite rather than clipping it, which
+  makes just the wide digits invisible (see Troubleshooting).
+  Alternatively, `tools/make_digit_font.html` traces photos of digits into
+  a *non*-anti-aliased "GFXfont" header (the same format
+  `FreeSansBold9pt7b`/`12pt7b` already use here) entirely in a browser, no
+  Processing/TFT_eSPI tooling needed — a rougher look than a real vector
+  font, but a self-service option that doesn't need a TTF at all.
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
-  per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`,
-  `drawCustomDigitCell()`) based on `currentFace` - Video and Photo bypass
-  this dispatcher entirely and redraw their own whole row each tick
-  (`VideoPlayer::draw()`, `drawPhotoRow()`), since neither fits the fixed
-  per-cell column grid the others share. `ClockDisplay::nextFace()` cycles
-  through the
+  per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`)
+  based on `currentFace` - Video, Photo and Botanical bypass this
+  dispatcher entirely and redraw their own whole row each tick
+  (`VideoPlayer::draw()`, `drawPhotoRow()`), since none of them fit the
+  fixed per-cell column grid the other two share. `ClockDisplay::nextFace()`
+  cycles through the
   `ClockFaceId` enum (`FACE_COUNT` faces total) and is wired to a LEFT/RIGHT
   tap in `ESP32_WiFi_Clock.ino`. A face that wants its own smooth font
   (rather than plain geometry, like the LED face) needs to be added to
