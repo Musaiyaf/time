@@ -142,7 +142,7 @@ const BadgeTheme THEME_SILVER = {
 // Badges match the page colour, same "background matches the badges"
 // pattern Botanical's green and Photo's white already use.
 const uint16_t COL_FLIP_BG     = tft.color565(15, 15, 17);   // page behind the cards
-const uint16_t COL_FLIP_CARD   = tft.color565(35, 36, 40);   // card face
+const uint16_t COL_FLIP_CARD   = tft.color565(48, 50, 56);   // card face - clearly lighter than the page
 const uint16_t COL_FLIP_TEXT   = TFT_WHITE;                  // digit ink, at rest
 const uint16_t COL_FLIP_SHADOW = tft.color565(90, 92, 98);   // flap tint near edge-on
 const uint16_t COL_FLIP_HINGE  = tft.color565(120, 123, 130); // seam highlight line
@@ -421,9 +421,22 @@ void drawRainbowGridDigitCellAnimated(int col, char fromCh, char toCh, float pro
 // Horizontal clipping is left at the full cell width (proven safe for
 // this font - see the CELL_DIGIT_W comment above) even though the card
 // itself is drawn narrower, so the widest glyphs never get clipped.
-const int FLIP_MARGIN_X = 2; // gap between adjacent digit cards
-const int FLIP_MARGIN_Y = 3; // gap above/below each card within its cell
-const int FLIP_PIN_R = 1;    // hinge pin dot radius
+//
+// The card's height is sized to the font's own ink, not stretched to
+// fill CLOCK_H: FredokaDigits87's VLW header gives ascent=87, descent=0,
+// so a digit is only ~87px of actual stroke tall. Splitting a cell-sized
+// (140px) card in half gave each half a 67px window for ~44px of visible
+// glyph - the other ~23px of "empty card" above the top half and below
+// the bottom half read as plain black on hardware once the card and page
+// colours are this close, since there's nothing drawn there to show the
+// card fill is a slightly different shade at all. FLIP_CARD_H below is
+// close to that real ink height instead, with the leftover cell space
+// becoming visible page margin around the card rather than dead space
+// inside it.
+const int FLIP_MARGIN_X = 2;  // gap between adjacent digit cards
+const int FLIP_CARD_H = 108;  // ~87px glyph + comfortable padding, not all of CLOCK_H
+const int FLIP_MARGIN_Y = (CLOCK_H - FLIP_CARD_H) / 2; // centres the card in the cell
+const int FLIP_PIN_R = 1;     // hinge pin dot radius
 
 void drawFlipHingePins(int cardX, int cardW, int hingeY) {
   digitSpr.fillCircle(cardX + 1, hingeY, FLIP_PIN_R, COL_FLIP_PIN);
@@ -434,7 +447,7 @@ void drawFlipDigitCell(int col, char ch) {
   int x = colX(col);
   int cardX = FLIP_MARGIN_X, cardY = FLIP_MARGIN_Y;
   int cardW = CELL_DIGIT_W - 2 * FLIP_MARGIN_X;
-  int cardH = CLOCK_H - 2 * FLIP_MARGIN_Y;
+  int cardH = FLIP_CARD_H;
   int hingeY = cardY + cardH / 2;
 
   digitSpr.fillSprite(COL_FLIP_BG);
@@ -451,7 +464,7 @@ void drawFlipDigitCellAnimated(int col, char fromCh, char toCh, float progress) 
   int x = colX(col);
   int cardX = FLIP_MARGIN_X, cardY = FLIP_MARGIN_Y;
   int cardW = CELL_DIGIT_W - 2 * FLIP_MARGIN_X;
-  int cardH = CLOCK_H - 2 * FLIP_MARGIN_Y;
+  int cardH = FLIP_CARD_H;
   int halfH = cardH / 2;
   int halfH2 = cardH - halfH;
   int hingeY = cardY + halfH;
