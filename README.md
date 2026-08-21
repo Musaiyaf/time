@@ -93,7 +93,8 @@ firmware uses `INPUT_PULLUP`, so no external resistor is needed):
 | RIGHT | 5 | |
 | OK | 0 | The BOOT button - most ESP32-S3 dev boards already have this wired, so OK usually needs no extra hardware. |
 
-LEFT/RIGHT cycle clock faces; holding OK opens the on-device settings menu
+LEFT/RIGHT cycle clock faces; holding LEFT opens the
+[weather screen](#weather); holding OK opens the on-device settings menu
 (see [Using the clock](#using-the-clock)). Holding OK for 3
 seconds right after power-up wipes any saved WiFi credentials, so the
 next boot starts fresh with the "no WiFi" try-again-or-Manual-Mode
@@ -111,7 +112,8 @@ firmware/ESP32_WiFi_Clock/
   web_portal.h/.cpp       - the setup webserver (scan/save/reset routes)
   webpage_html.h          - the self-contained HTML/CSS/JS setup page
   clock_display.h/.cpp    - TFT_eSPI rendering of the clock theme
-  menu.h/.cpp             - on-device main menu + settings menu (WiFi, Time Zone, Date/Time, About)
+  menu.h/.cpp             - on-device main menu, settings menu and weather screen
+  weather.h/.cpp          - Open-Meteo current conditions + hourly forecast (no API key)
   tz_database.h           - ~430 IANA zones grouped by continent, for menu.cpp
   rtc_backup.h/.cpp        - optional DS3231 backup RTC over I2C (raw Wire, no library)
   sd_card.h/.cpp           - optional SD card module (SD/SPI, ships with the ESP32 core)
@@ -268,6 +270,42 @@ behind and around* the panels and the status bar, both set to a deep
 vine-green sampled straight from the digits' own leaves (`COL_BOTANICAL_BG`
 in `clock_display.cpp`), with cream badge text sampled from the source
 art's own parchment-page background.
+
+### Weather
+
+**Hold LEFT** on any clock face to see the weather. The screen shows the
+city, current temperature and conditions with an icon, what it feels
+like, humidity and wind speed, then a strip of the next hours along the
+bottom — each with its own icon, temperature and chance of rain.
+LEFT/RIGHT scroll that strip through the full 12-hour forecast, holding
+either one refetches immediately, and OK returns to the clock.
+
+Set the city in either place — both save to the same setting:
+
+- **On the clock:** hold OK → **Settings** → **Weather City**, and type
+  the name on the same character-carousel keyboard the WiFi password
+  entry uses (LEFT/RIGHT pick a character, OK appends it, then choose
+  **SAVE**). The field starts pre-filled with the current city, so
+  correcting one doesn't mean retyping it.
+- **On the web page:** the **Weather** card, which saves without
+  restarting the clock (unlike the WiFi form). Saving an empty name in
+  either place turns the weather screen off again.
+
+Either way the name is looked up once, so the clock needs to already be
+on WiFi when you set it — a name like `London` or `Sao Paulo` resolves
+to a "City, Country" label and its coordinates, and only the
+coordinates are used from then on. The forecast refreshes about every 15
+minutes while connected (sooner after a failure), and a refresh that
+fails keeps showing the last good data with its age, rather than
+blanking the screen.
+
+Data comes from [Open-Meteo](https://open-meteo.com), which needs no API
+key and no account, so there's nothing to sign up for or paste in beyond
+the city name. Temperatures are Celsius and wind is km/h. Requests are
+made over HTTPS without certificate validation
+(`client.setInsecure()` in `weather.cpp`) — a deliberate trade for a
+device fetching public, read-only data that has no way to update a
+pinned CA root short of a reflash.
 
 **On-device main menu:** hold OK (not a tap - hold it down) on any clock
 face to open the top-level menu: three icon tiles, **SD Card**,

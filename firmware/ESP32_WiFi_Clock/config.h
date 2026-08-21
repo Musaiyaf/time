@@ -83,6 +83,19 @@
 #define RTC_SCL_PIN 9
 
 // ---------------------------------------------------------------------
+// Weather (see weather.h). Open-Meteo needs no API key and no account,
+// so the only thing a user ever has to supply is a city name - set it
+// from the on-device Settings menu or the web portal. Temperatures are
+// Celsius and wind is km/h, straight from the API's defaults.
+// ---------------------------------------------------------------------
+#define WEATHER_GEOCODE_URL  "https://geocoding-api.open-meteo.com/v1/search"
+#define WEATHER_FORECAST_URL "https://api.open-meteo.com/v1/forecast"
+// How many hours ahead to fetch. The weather screen shows 6 at a time
+// and scrolls through the rest with LEFT/RIGHT.
+#define WEATHER_FORECAST_HOURS 12
+#define WEATHER_HTTP_TIMEOUT_MS 8000
+
+// ---------------------------------------------------------------------
 // Optional SD card module (SPI) - lets the on-device menu browse its
 // files. Runs on its own dedicated SPI bus, entirely separate from the
 // display's, so there's no bus-sharing to get right - just a plain

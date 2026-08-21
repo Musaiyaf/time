@@ -42,6 +42,7 @@
 #include "menu.h"
 #include "rtc_backup.h"
 #include "sd_card.h"
+#include "weather.h"
 
 WebServer server(80);
 DNSServer dnsServer;
@@ -79,6 +80,7 @@ void setup() {
   RtcBackup::begin(); // probes for an optional DS3231 backup RTC
   SdCard::begin();    // probes for an optional SD card module
   WifiManager::begin();
+  Weather::begin();   // loads the saved weather city, if one is set
 
   // Hold the OK button for 3s right after boot to wipe saved WiFi. This
   // only runs once, here, before Menu::begin() sets up button polling for
@@ -150,6 +152,13 @@ void loop() {
   if (menuOwnsScreen) {
     return;
   }
+
+  // Refetches the forecast when one is due (~every 15 minutes) and there's
+  // a city set and a connection - a no-op otherwise. Deliberately below
+  // the menuOwnsScreen check: a fetch blocks for a second or two on the
+  // TLS handshake, which is fine against the clock's own once-a-second
+  // redraw but would stall a menu mid-interaction.
+  Weather::loop();
 
   static unsigned long lastWifiCheck = 0;
   static unsigned long lastRender = 0;

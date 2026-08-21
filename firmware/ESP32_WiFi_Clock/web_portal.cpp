@@ -4,6 +4,7 @@
 #include "sd_card.h"
 #include "video_player.h"
 #include "clock_display.h"
+#include "weather.h"
 #include "config.h"
 #include <WiFi.h>
 
@@ -47,6 +48,7 @@ void handleRoot() {
   page.replace("%TZ%", tz);
   page.replace("%NTP1%", ntp1);
   page.replace("%NTP2%", ntp2);
+  page.replace("%CITY%", Weather::cityName());
 
   // Without this, a browser is free to keep serving an old cached copy of
   // this page indefinitely - happened in practice with the Video
@@ -196,6 +198,43 @@ void handleVideoDelete() {
   server->send(200, "text/plain", "OK");
 }
 
+// ---- Weather city ------------------------------------------------------
+// Saving is deliberately not part of the WiFi form's save-and-reboot
+// flow: the city only needs a geocoding lookup, which works right away on
+// an already-connected clock, so this applies immediately and the page
+// stays put. In AP/setup mode there's no internet to look a name up
+// against yet, so it says so instead of failing cryptically.
+void handleWeatherStatus() {
+  String json = "{\"city\":\"" + escapeJson(Weather::cityName()) + "\",";
+  json += "\"label\":\"" + escapeJson(Weather::resolvedLabel()) + "\",";
+  json += "\"status\":\"" + escapeJson(Weather::statusText()) + "\",";
+  json += "\"online\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + "}";
+  server->send(200, "application/json", json);
+}
+
+void handleWeatherSave() {
+  String city = server->arg("city");
+  city.trim();
+
+  if (city.length() == 0) {
+    Weather::clearCity();
+    server->send(200, "text/plain", "Weather city cleared.");
+    return;
+  }
+  if (WiFi.status() != WL_CONNECTED) {
+    server->send(409, "text/plain",
+                 "The clock needs to be on WiFi first - the city name has to be looked up online.");
+    return;
+  }
+
+  String err;
+  if (Weather::setCity(city, err)) {
+    server->send(200, "text/plain", "Saved: " + Weather::resolvedLabel());
+  } else {
+    server->send(400, "text/plain", err);
+  }
+}
+
 void handleCaptivePing() {
   // Common captive-portal probe URLs (Android/iOS/Windows). Redirecting
   // them to "/" makes the setup page pop up automatically on most phones.
@@ -235,6 +274,8 @@ void begin(WebServer *serverPtr, DNSServer *dnsPtr, bool isCaptive) {
   server->on("/video/upload", HTTP_POST, handleVideoUpload, handleVideoUploadData);
   server->on("/video/status", HTTP_GET, handleVideoStatus);
   server->on("/video/delete", HTTP_POST, handleVideoDelete);
+  server->on("/weather/status", HTTP_GET, handleWeatherStatus);
+  server->on("/weather/save", HTTP_POST, handleWeatherSave);
 
   // Captive portal probe endpoints used by various OSes.
   server->on("/generate_204", HTTP_GET, handleCaptivePing);       // Android

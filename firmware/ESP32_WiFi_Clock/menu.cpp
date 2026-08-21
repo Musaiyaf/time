@@ -2,6 +2,7 @@
 #include "config.h"
 #include "clock_display.h"
 #include "wifi_manager.h"
+#include "weather.h"
 #include "tz_database.h"
 #include "sd_card.h"
 #include <WiFi.h>
@@ -132,6 +133,7 @@ const uint16_t COL_ICON_TZ   = rgb565(255, 159, 28);  // orange
 const uint16_t COL_ICON_BACK = rgb565(255, 79, 163);  // pink
 const uint16_t COL_ICON_DATETIME = rgb565(140, 255, 150); // mint green
 const uint16_t COL_ICON_SD = rgb565(255, 210, 60);    // gold
+const uint16_t COL_ICON_WEATHER = rgb565(120, 190, 255); // sky blue
 
 // ---- menu state -------------------------------------------------------
 // CLOCK -> MAIN (3 icon tiles: SD Card, Settings, Back) -> SETTINGS (text
@@ -148,9 +150,10 @@ const char *const MAIN_LABELS[MAIN_TILE_COUNT] = {"SD Card", "Settings", "Back"}
 const uint16_t MAIN_COLORS[MAIN_TILE_COUNT] = {COL_ICON_SD, COL_SETTINGS_ACCENT, COL_ICON_BACK};
 int mainIndex = 0;
 
-const int SETTINGS_COUNT = 4;
-const char *const SETTINGS_LABELS[SETTINGS_COUNT] = {"WiFi", "Time Zone", "Date/Time", "About"};
-const uint16_t SETTINGS_COLORS[SETTINGS_COUNT] = {COL_ICON_WIFI, COL_ICON_TZ, COL_ICON_DATETIME, COL_SETTINGS_ACCENT};
+const int SETTINGS_COUNT = 5;
+const char *const SETTINGS_LABELS[SETTINGS_COUNT] = {"WiFi", "Time Zone", "Date/Time", "Weather City", "About"};
+const uint16_t SETTINGS_COLORS[SETTINGS_COUNT] = {COL_ICON_WIFI, COL_ICON_TZ, COL_ICON_DATETIME,
+                                                   COL_ICON_WEATHER, COL_SETTINGS_ACCENT};
 int settingsIndex = 0;
 
 int continentIndex = 0;
@@ -360,22 +363,27 @@ void exitToClock() {
 // single-item-carousel interaction used everywhere else in this menu,
 // just applied to characters instead of menu items. There's no way to
 // avoid this being tedious with only two navigation buttons; the row is
-// ordered lowercase-first since most passwords lean that way.
-const char *const WIFI_CHARSET =
+// ordered lowercase-first since most passwords (and city names) lean
+// that way.
+const char *const TEXT_CHARSET =
     "abcdefghijklmnopqrstuvwxyz"
     "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "0123456789"
     " !@#$%^&*()-_=+.,";
-const char *const WIFI_CTRL_LABELS[3] = {"DELETE", "CONNECT", "CANCEL"};
-const int WIFI_CTRL_DELETE = 0, WIFI_CTRL_CONNECT = 1, WIFI_CTRL_CANCEL = 2;
+const int TEXT_CTRL_DELETE = 0, TEXT_CTRL_CONFIRM = 1, TEXT_CTRL_CANCEL = 2;
 
-// Returns true and fills outPassword if the user picked CONNECT; false if
-// they picked CANCEL or held OK.
-bool runPasswordEntry(const String &ssid, String &outPassword) {
-  int charsetLen = strlen(WIFI_CHARSET);
+// Shared by WiFi password entry and the weather city name. heading names
+// what's being typed, confirmLabel is the wording on the "done" control
+// ("CONNECT", "SAVE", ...), and initial pre-fills the field so an
+// existing value can be edited rather than retyped from scratch.
+// Returns true and fills out if the user confirmed; false if they picked
+// CANCEL or held OK.
+bool runTextEntry(const String &heading, const String &confirmLabel,
+                  const String &initial, String &out) {
+  int charsetLen = strlen(TEXT_CHARSET);
   int totalPositions = charsetLen + 3;
 
-  String pw = "";
+  String text = initial;
   int pos = 0;
   bool dirtyLocal = true;
 
@@ -387,18 +395,18 @@ bool runPasswordEntry(const String &ssid, String &outPassword) {
 
     if (lt) { pos = (pos + totalPositions - 1) % totalPositions; dirtyLocal = true; }
     if (rt) { pos = (pos + 1) % totalPositions; dirtyLocal = true; }
-    if (ol) return false; // hold OK: cancel entirely, back to the network list
+    if (ol) return false; // hold OK: cancel entirely
     if (ot) {
       if (pos < charsetLen) {
-        pw += WIFI_CHARSET[pos];
+        text += TEXT_CHARSET[pos];
         dirtyLocal = true;
       } else {
         int ctrl = pos - charsetLen;
-        if (ctrl == WIFI_CTRL_DELETE) {
-          if (pw.length() > 0) pw.remove(pw.length() - 1);
+        if (ctrl == TEXT_CTRL_DELETE) {
+          if (text.length() > 0) text.remove(text.length() - 1);
           dirtyLocal = true;
-        } else if (ctrl == WIFI_CTRL_CONNECT) {
-          outPassword = pw;
+        } else if (ctrl == TEXT_CTRL_CONFIRM) {
+          out = text;
           return true;
         } else {
           return false; // CANCEL
@@ -409,19 +417,26 @@ bool runPasswordEntry(const String &ssid, String &outPassword) {
     if (dirtyLocal) {
       String itemLabel;
       if (pos < charsetLen) {
-        char c = WIFI_CHARSET[pos];
+        char c = TEXT_CHARSET[pos];
         itemLabel = (c == ' ') ? String("SPACE") : String(c);
       } else {
-        itemLabel = WIFI_CTRL_LABELS[pos - charsetLen];
+        int ctrl = pos - charsetLen;
+        itemLabel = (ctrl == TEXT_CTRL_DELETE)  ? String("DELETE")
+                    : (ctrl == TEXT_CTRL_CONFIRM) ? confirmLabel
+                                                  : String("CANCEL");
       }
-      String shown = pw.length() ? pw : String("(empty)");
+      String shown = text.length() ? text : String("(empty)");
       if (shown.length() > 24) shown = "..." + shown.substring(shown.length() - 21);
-      drawScreen(ssid, COL_HEADING_BG, COL_HEADING_TXT, itemLabel, COL_SETTINGS_ACCENT,
+      drawScreen(heading, COL_HEADING_BG, COL_HEADING_TXT, itemLabel, COL_SETTINGS_ACCENT,
                  shown, "< > char   OK pick   hold cancel");
       dirtyLocal = false;
     }
     delay(5);
   }
+}
+
+bool runPasswordEntry(const String &ssid, String &outPassword) {
+  return runTextEntry(ssid, "CONNECT", "", outPassword);
 }
 
 const int WIFI_MAX_NETWORKS = 30;
@@ -666,6 +681,370 @@ void runSdBrowser() {
   }
 }
 
+// ---- Weather screen ----------------------------------------------------
+// Opened by holding LEFT from any clock face (a separate gesture from
+// LEFT's usual tap-to-cycle-faces, and from OK's hold-for-main-menu).
+// Shows current conditions plus a scrollable strip of the next hours -
+// see weather.h for where the data comes from and how the city is set.
+
+const uint16_t COL_WX_SUN   = rgb565(255, 196, 60);
+const uint16_t COL_WX_CLOUD = rgb565(200, 208, 220);
+const uint16_t COL_WX_RAIN  = rgb565(90, 170, 255);
+const uint16_t COL_WX_SNOW  = rgb565(228, 242, 255);
+const uint16_t COL_WX_BOLT  = rgb565(255, 224, 70);
+const uint16_t COL_WX_LABEL = rgb565(150, 158, 172);
+
+enum WxKind { WX_SUN, WX_PARTLY, WX_CLOUD, WX_FOG, WX_RAIN, WX_SNOW, WX_STORM };
+
+// Groups the ~25 distinct WMO codes the API can return into the handful
+// of shapes worth drawing separately at this size.
+WxKind wxKindFor(int code) {
+  if (code == 0) return WX_SUN;
+  if (code == 1 || code == 2) return WX_PARTLY;
+  if (code == 3) return WX_CLOUD;
+  if (code == 45 || code == 48) return WX_FOG;
+  if (code >= 95) return WX_STORM;
+  if ((code >= 71 && code <= 77) || code == 85 || code == 86) return WX_SNOW;
+  return WX_RAIN; // 51-67 drizzle/rain/freezing, 80-82 showers
+}
+
+// A filled sun: disc plus eight rays. r is the disc radius.
+void wxSun(TFT_eSPI &tft, int cx, int cy, int r, uint16_t color) {
+  tft.fillCircle(cx, cy, r, color);
+  int inner = r + max(2, r / 2);
+  int outer = inner + max(2, r / 2);
+  for (int i = 0; i < 8; i++) {
+    float a = i * PI / 4.0f;
+    int x0 = cx + (int)(cosf(a) * inner), y0 = cy + (int)(sinf(a) * inner);
+    int x1 = cx + (int)(cosf(a) * outer), y1 = cy + (int)(sinf(a) * outer);
+    tft.drawLine(x0, y0, x1, y1, color);
+    // A second, offset line so the rays read as solid rather than hairline.
+    tft.drawLine(x0 + 1, y0, x1 + 1, y1, color);
+  }
+}
+
+// A cloud: two side puffs, a taller centre puff, and a flat base. w is
+// the overall half-width.
+void wxCloud(TFT_eSPI &tft, int cx, int cy, int w, uint16_t color) {
+  int r = max(3, w / 2);
+  tft.fillCircle(cx - r, cy, r, color);
+  tft.fillCircle(cx + r, cy, r, color);
+  tft.fillCircle(cx, cy - r / 2, r, color);
+  tft.fillRect(cx - r * 3 / 2, cy, r * 3, r, color);
+}
+
+// Short slanted strokes under a cloud, for rain.
+void wxRainStreaks(TFT_eSPI &tft, int cx, int cy, int w, uint16_t color) {
+  int len = max(4, w / 2);
+  for (int i = -1; i <= 1; i++) {
+    int x = cx + i * max(4, w / 2);
+    tft.drawLine(x, cy, x - len / 2, cy + len, color);
+    tft.drawLine(x + 1, cy, x - len / 2 + 1, cy + len, color);
+  }
+}
+
+void wxSnowDots(TFT_eSPI &tft, int cx, int cy, int w, uint16_t color) {
+  int r = max(1, w / 8);
+  for (int i = -1; i <= 1; i++) {
+    tft.fillCircle(cx + i * max(4, w / 2), cy + max(3, w / 3), r, color);
+  }
+}
+
+void wxBolt(TFT_eSPI &tft, int cx, int cy, int w, uint16_t color) {
+  int h = max(6, w);
+  tft.fillTriangle(cx + w / 4, cy, cx - w / 4, cy + h / 2,
+                   cx + w / 12, cy + h / 2, color);
+  tft.fillTriangle(cx + w / 12, cy + h / 2, cx - w / 4, cy + h,
+                   cx + w / 4, cy + h / 2, color);
+}
+
+// Draws the icon for a weather code centred on (cx, cy). size is the
+// nominal half-width in pixels - roughly 20 for the big current-
+// conditions icon, roughly 10 for one hourly column.
+void drawWxIcon(TFT_eSPI &tft, int cx, int cy, int size, int code) {
+  switch (wxKindFor(code)) {
+    case WX_SUN:
+      wxSun(tft, cx, cy, size / 2, COL_WX_SUN);
+      break;
+    case WX_PARTLY:
+      wxSun(tft, cx + size / 3, cy - size / 3, size / 3, COL_WX_SUN);
+      wxCloud(tft, cx - size / 5, cy + size / 5, size * 3 / 4, COL_WX_CLOUD);
+      break;
+    case WX_CLOUD:
+      wxCloud(tft, cx, cy, size, COL_WX_CLOUD);
+      break;
+    case WX_FOG:
+      wxCloud(tft, cx, cy - size / 4, size * 4 / 5, COL_WX_CLOUD);
+      for (int i = 0; i < 3; i++) {
+        int y = cy + size / 2 + i * max(3, size / 4);
+        tft.drawFastHLine(cx - size, y, size * 2, COL_WX_CLOUD);
+      }
+      break;
+    case WX_RAIN:
+      wxCloud(tft, cx, cy - size / 3, size, COL_WX_CLOUD);
+      wxRainStreaks(tft, cx, cy + size / 2, size, COL_WX_RAIN);
+      break;
+    case WX_SNOW:
+      wxCloud(tft, cx, cy - size / 3, size, COL_WX_CLOUD);
+      wxSnowDots(tft, cx, cy + size / 3, size, COL_WX_SNOW);
+      break;
+    case WX_STORM:
+      wxCloud(tft, cx, cy - size / 3, size, COL_WX_CLOUD);
+      wxBolt(tft, cx, cy + size / 3, size / 2, COL_WX_BOLT);
+      break;
+  }
+}
+
+// The FreeSans GFX fonts are ASCII-only, with no degree glyph, so draw
+// the little ring instead of trying to print one.
+void drawDegreeMark(TFT_eSPI &tft, int x, int y, int r, uint16_t color) {
+  tft.drawCircle(x, y, r, color);
+  if (r > 2) tft.drawCircle(x, y, r - 1, color);
+}
+
+// A temperature as "18" plus a drawn degree ring, centred as a unit on
+// cx. Returns nothing - it's only ever used for display.
+void drawTempCentred(TFT_eSPI &tft, int cx, int cy, float tempC, int ringR, uint16_t color) {
+  String num = String((int)roundf(tempC));
+  int numW = tft.textWidth(num);
+  int totalW = numW + ringR * 2 + 3;
+  int left = cx - totalW / 2;
+  tft.setTextDatum(ML_DATUM);
+  tft.setTextColor(color, COL_BG);
+  tft.drawString(num, left, cy);
+  drawDegreeMark(tft, left + numW + ringR + 2, cy - tft.fontHeight() / 4, ringR, color);
+}
+
+// Fits text to a pixel width by trimming and appending an ellipsis.
+String fitToWidth(TFT_eSPI &tft, const String &s, int maxW) {
+  if (tft.textWidth(s) <= maxW) return s;
+  String t = s;
+  while (t.length() > 1 && tft.textWidth(t + "...") > maxW) t.remove(t.length() - 1);
+  return t + "...";
+}
+
+const int WX_COLS = 6; // hourly columns visible at once
+
+// A full-screen message, used for the "no city" / "no data" states and
+// the brief "Updating..." flash.
+void drawWeatherMessage(const String &title, const String &line1, const String &line2,
+                         uint16_t titleColor, const String &hint = "OK: back") {
+  TFT_eSPI &tft = ClockDisplay::rawDisplay();
+  const int cx = TFT_SCREEN_WIDTH / 2;
+  tft.fillScreen(COL_BG);
+  tft.setTextDatum(MC_DATUM);
+  tft.setFreeFont(&FreeSansBold12pt7b);
+  tft.setTextColor(titleColor, COL_BG);
+  tft.drawString(title, cx, 52);
+  tft.setFreeFont(&FreeSansBold9pt7b);
+  tft.setTextColor(COL_ITEM_TXT_DIM, COL_BG);
+  if (line1.length()) tft.drawString(line1, cx, 92);
+  if (line2.length()) tft.drawString(line2, cx, 116);
+  tft.setTextColor(COL_HINT_TXT, COL_BG);
+  tft.drawString(hint, cx, 154);
+  tft.setFreeFont(nullptr);
+}
+
+void drawWeatherScreen(int scroll) {
+  TFT_eSPI &tft = ClockDisplay::rawDisplay();
+  const int W = TFT_SCREEN_WIDTH;
+  tft.fillScreen(COL_BG);
+
+  // ---- header: where, and how fresh ----
+  tft.fillRect(0, 0, W, 22, COL_HEADING_BG);
+  tft.setFreeFont(&FreeSansBold9pt7b);
+  tft.setTextDatum(ML_DATUM);
+  tft.setTextColor(COL_HEADING_TXT, COL_HEADING_BG);
+  tft.drawString(fitToWidth(tft, Weather::resolvedLabel(), 180), 6, 11);
+  tft.setTextDatum(MR_DATUM);
+  tft.setTextColor(COL_ITEM_TXT_DIM, COL_HEADING_BG);
+  tft.drawString(fitToWidth(tft, Weather::statusText(), 128), W - 6, 11);
+
+  // ---- current conditions ----
+  drawWxIcon(tft, 36, 56, 20, Weather::currentCode());
+
+  tft.setFreeFont(&FreeSansBold18pt7b);
+  drawTempCentred(tft, 108, 52, Weather::currentTempC(), 5, TFT_WHITE);
+
+  tft.setFreeFont(&FreeSansBold9pt7b);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(COL_ICON_WEATHER, COL_BG);
+  tft.drawString(fitToWidth(tft, Weather::codeText(Weather::currentCode()), 150), 108, 80);
+
+  // Supporting numbers, right of the big temperature.
+  tft.setTextDatum(ML_DATUM);
+  const int infoX = 196;
+  tft.setFreeFont(&FreeSansBold9pt7b);
+  tft.setTextColor(COL_WX_LABEL, COL_BG);
+  tft.drawString("Feels", infoX, 38);
+  tft.drawString("Humidity", infoX, 60);
+  tft.drawString("Wind", infoX, 82);
+  tft.setTextColor(TFT_WHITE, COL_BG);
+  tft.setTextDatum(MR_DATUM);
+  {
+    // Right-aligned values, with the degree ring hung off the end of the
+    // "feels like" number so it lines up with the others.
+    String feels = String((int)roundf(Weather::feelsLikeC()));
+    int ringR = 3;
+    tft.drawString(feels, W - 8 - (ringR * 2 + 3), 38);
+    drawDegreeMark(tft, W - 8 - ringR, 38 - tft.fontHeight() / 4, ringR, TFT_WHITE);
+    tft.drawString(String(Weather::humidityPct()) + "%", W - 8, 60);
+    tft.drawString(String((int)roundf(Weather::windKph())) + " km/h", W - 8, 82);
+  }
+
+  // ---- next hours ----
+  const int stripTop = 96;
+  tft.drawFastHLine(0, stripTop, W, COL_TILE_BORDER);
+
+  int n = Weather::hourCount();
+  if (n <= 0) {
+    tft.setFreeFont(&FreeSansBold9pt7b);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(COL_ITEM_TXT_DIM, COL_BG);
+    tft.drawString("No hourly forecast", W / 2, 130);
+    tft.setFreeFont(nullptr);
+    return;
+  }
+
+  int shown = min(WX_COLS, n - scroll);
+  int colW = W / WX_COLS;
+  for (int i = 0; i < shown; i++) {
+    const Weather::HourSlot &h = Weather::hourAt(scroll + i);
+    int cx = i * colW + colW / 2;
+
+    tft.setFreeFont(&FreeSansBold9pt7b);
+    tft.setTextDatum(MC_DATUM);
+    tft.setTextColor(COL_WX_LABEL, COL_BG);
+    tft.drawString(pad2(h.hour), cx, stripTop + 12);
+
+    drawWxIcon(tft, cx, stripTop + 34, 10, h.code);
+
+    drawTempCentred(tft, cx, stripTop + 54, h.tempC, 3, TFT_WHITE);
+
+    if (h.precipPct > 0) {
+      tft.setTextDatum(MC_DATUM);
+      tft.setTextColor(COL_WX_RAIN, COL_BG);
+      tft.drawString(String(h.precipPct) + "%", cx, stripTop + 68);
+    }
+  }
+
+  // Scroll position, only once there's more than one screenful.
+  if (n > WX_COLS) {
+    tft.setFreeFont(nullptr);
+    tft.setTextDatum(MR_DATUM);
+    tft.setTextColor(COL_HINT_TXT, COL_BG);
+    tft.drawString("+" + String(scroll) + "h", W - 3, TFT_SCREEN_HEIGHT - 6);
+  }
+  tft.setFreeFont(nullptr);
+}
+
+void runWeatherScreen() {
+  if (!Weather::hasCity()) {
+    drawWeatherMessage("No city set", "Set one in Settings > Weather City,",
+                        "or on the clock's web page.", COL_WARN);
+    blockForOk();
+    return;
+  }
+
+  // First open of the session (or right after the city changed) - fetch
+  // now rather than showing an empty screen until the background refresh
+  // in loop() next comes around.
+  if (!Weather::hasForecast() && WiFi.status() == WL_CONNECTED) {
+    drawWeatherMessage("Weather", "Fetching forecast for", Weather::resolvedLabel(),
+                        COL_ICON_WEATHER);
+    Weather::refreshNow();
+  }
+
+  int scroll = 0;
+  bool dirtyLocal = true;
+  unsigned long nextTick = millis() + 30000;
+
+  while (true) {
+    bool lt, ll, rt, rl, ot, ol;
+    btnLeft.poll(lt, ll);
+    btnRight.poll(rt, rl);
+    btnOk.poll(ot, ol);
+
+    if (ot || ol) return; // OK (tap or hold): back to the clock
+
+    if (!Weather::hasForecast()) {
+      if (ll || rl) { // hold either arrow: try again
+        drawWeatherMessage("Weather", "Updating...", Weather::resolvedLabel(),
+                            COL_ICON_WEATHER, "");
+        Weather::refreshNow();
+        dirtyLocal = true;
+      }
+      if (dirtyLocal) {
+        drawWeatherMessage("No forecast yet", Weather::statusText(),
+                            Weather::resolvedLabel(), COL_WARN,
+                            "hold < or >: retry   OK: back");
+        dirtyLocal = false;
+      }
+      delay(20);
+      continue;
+    }
+
+    int n = Weather::hourCount();
+    int maxScroll = (n > WX_COLS) ? n - WX_COLS : 0;
+    if (lt) { scroll = (scroll > 0) ? scroll - 1 : maxScroll; dirtyLocal = true; }
+    if (rt) { scroll = (scroll < maxScroll) ? scroll + 1 : 0; dirtyLocal = true; }
+
+    if (ll || rl) { // hold either arrow: refresh right now
+      drawWeatherMessage("Weather", "Updating...", Weather::resolvedLabel(),
+                          COL_ICON_WEATHER);
+      Weather::refreshNow();
+      scroll = 0;
+      dirtyLocal = true;
+    }
+
+    // Keep the "Updated N min ago" line honest while the screen sits open.
+    if ((long)(millis() - nextTick) >= 0) {
+      nextTick = millis() + 30000;
+      dirtyLocal = true;
+    }
+
+    if (dirtyLocal) {
+      drawWeatherScreen(scroll);
+      dirtyLocal = false;
+    }
+    delay(5);
+  }
+}
+
+// Settings > Weather City: type a name, geocode it, report what it
+// resolved to (or why it didn't).
+void runCityEntry() {
+  String typed;
+  if (!runTextEntry("WEATHER CITY", "SAVE", Weather::cityName(), typed)) return;
+
+  typed.trim();
+  if (typed.length() == 0) {
+    Weather::clearCity();
+    drawScreen("WEATHER CITY", COL_HEADING_BG, COL_HEADING_TXT, "City cleared",
+               COL_ICON_WEATHER, "", "OK: back");
+    blockForOk();
+    return;
+  }
+
+  if (WiFi.status() != WL_CONNECTED) {
+    drawScreen("WEATHER CITY", COL_WARN, COL_BG, "No WiFi", COL_WARN,
+               "Connect first - the name has to be looked up", "OK: back");
+    blockForOk();
+    return;
+  }
+
+  drawScreen("WEATHER CITY", COL_HEADING_BG, COL_HEADING_TXT, "Looking up...",
+             COL_ICON_WEATHER, typed, "");
+  String err;
+  if (Weather::setCity(typed, err)) {
+    drawScreen("WEATHER CITY", COL_HEADING_BG, COL_HEADING_TXT, "Saved",
+               COL_ICON_WEATHER, Weather::resolvedLabel(), "OK: back");
+  } else {
+    drawScreen("WEATHER CITY", COL_WARN, COL_BG, err, COL_WARN, typed, "OK: back");
+  }
+  blockForOk();
+}
+
 } // namespace
 
 namespace Menu {
@@ -773,6 +1152,7 @@ bool handle() {
     case ST_CLOCK:
       if (leftTap) ClockDisplay::prevFace();
       if (rightTap) ClockDisplay::nextFace();
+      if (leftLong) { runWeatherScreen(); ClockDisplay::forceFullRedraw(); }
       if (okLong) enterMain();
       break;
 
@@ -811,6 +1191,9 @@ bool handle() {
           dirty = true;
         } else if (settingsIndex == 2) {
           runDateTimeSetter(); // blocking; redraws Settings once it's done
+          dirty = true;
+        } else if (settingsIndex == 3) {
+          runCityEntry(); // blocking; redraws Settings once it's done
           dirty = true;
         } else {
           state = ST_ABOUT;

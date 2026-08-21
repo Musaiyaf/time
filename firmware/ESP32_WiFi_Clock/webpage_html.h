@@ -115,6 +115,19 @@ const char PAGE_TEMPLATE[] PROGMEM = R"rawliteral(
   </div>
 
   <div class="card">
+    <h2>Weather</h2>
+    <div class="sub" id="wxStatus" style="margin-bottom:10px">Checking...</div>
+    <label>City</label>
+    <input type="text" id="wxCity" name="city" autocomplete="off"
+           placeholder="e.g. London, Tokyo, Sao Paulo" value="%CITY%">
+    <button type="button" onclick="weatherSave()">Save city</button>
+    <div class="sub" style="margin-top:8px">
+      Hold the LEFT button on the clock to see the forecast. Leave this blank and
+      save to turn the weather screen off.
+    </div>
+  </div>
+
+  <div class="card">
     <h2>Video Wallpaper</h2>
     <div class="sub" id="vidStatus" style="margin-bottom:10px">Checking...</div>
     <input type="file" id="vidFile" accept="video/*" style="display:none" onchange="videoPicked(event)">
@@ -415,6 +428,44 @@ function vidRefreshStatus(){
   });
 }
 vidRefreshStatus();
+
+// ---- Weather --------------------------------------------------------
+// The city is saved on its own, without the reboot the WiFi form does:
+// all it needs is a geocoding lookup, which the clock can do right away
+// as long as it's already online.
+function weatherSave(){
+  var city = document.getElementById('wxCity').value.trim();
+  var out = document.getElementById('wxStatus');
+  out.textContent = city ? 'Looking up "' + city + '"...' : 'Clearing...';
+  fetch('/weather/save', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'city=' + encodeURIComponent(city)
+  }).then(function(r){
+    return r.text().then(function(t){ return {ok: r.ok, text: t}; });
+  }).then(function(res){
+    out.textContent = res.text;
+    if (res.ok) setTimeout(wxRefreshStatus, 1500);
+  }).catch(function(){
+    out.textContent = 'Could not reach the clock.';
+  });
+}
+
+function wxRefreshStatus(){
+  fetch('/weather/status').then(function(r){ return r.json(); }).then(function(s){
+    var out = document.getElementById('wxStatus');
+    if (!s.city) {
+      out.textContent = s.online
+          ? 'No city set yet.'
+          : 'No city set yet - connect the clock to WiFi first, then set one here.';
+      return;
+    }
+    out.textContent = s.label + ' · ' + s.status;
+  }).catch(function(){
+    document.getElementById('wxStatus').textContent = '';
+  });
+}
+wxRefreshStatus();
 </script>
 </body>
 </html>
