@@ -235,10 +235,14 @@ from its row, no submenu needed - shows its current ON/OFF state), and
 **About**.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between six clock faces: the rainbow grid face; a retro LED face
-(classic digital-alarm-clock style 7-segment digits, bright red on black,
-with a faint ghost of the unlit segments); [**Video**](#video-wallpaper),
-which loops a short video clip fullscreen; [**Photo**](#photo-face), a
+cycle between six clock faces: the rainbow grid face, where each digit
+rolls to its next value like a train on a vertical rail track - the old
+digit slides up and off the top of its cell while the new one rises from
+below to take its place, rather than the instant swap every other face
+still uses; a retro LED face (classic digital-alarm-clock style 7-segment
+digits, bright red on black, with a faint ghost of the unlit segments);
+[**Video**](#video-wallpaper), which loops a short video clip fullscreen;
+[**Photo**](#photo-face), a
 font-sampler face - each digit *value* 0-9 is its own real photographed
 typeface and colour, not one consistent font - on a plain white
 background (several of the digits are themselves too dark to read on

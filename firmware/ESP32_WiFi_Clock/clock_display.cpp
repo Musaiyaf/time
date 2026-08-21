@@ -217,6 +217,22 @@ bool badgeGlossActive() { return currentFace == FACE_SILVER; }
 // ---- state cache, so we only repaint what changed --------------------
 char lastDigit[CELL_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0};
 bool gridDrawn = false;
+
+// Rainbow grid face only: rolling digit transition, like a train of digits
+// on a vertical rail track - the old digit slides up and off the top of
+// the cell while the new one rises up from below to take its place,
+// rather than the old instant swap every other face still uses. Modelled
+// as a single strip holding both digits (old at the cell's normal centre,
+// new one full cell-height below it) that slides upward by `progress` of
+// the cell height - see drawRainbowGridDigitCellAnimated().
+struct DigitAnim {
+  char fromCh = 0;
+  char toCh = 0;
+  unsigned long startMs = 0;
+  bool active = false;
+};
+DigitAnim digitAnims[CELL_COUNT];
+const unsigned long DIGIT_ANIM_MS = 220;
 String lastDateStr = "\x01";       // year badge cache
 String lastMonthDayStr = "\x01";   // month/day badge cache
 String lastWeekStr = "\x01";
@@ -327,6 +343,27 @@ void drawRainbowGridDigitCell(int col, char ch) {
   digitSpr.setTextColor(COL_DIGIT_PALETTE[col], COL_BG);
   digitSpr.setTextDatum(MC_DATUM);
   digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, CLOCK_H / 2);
+  applyDigitGloss(digitSpr, CELL_DIGIT_W, CLOCK_H);
+  digitSpr.pushSprite(x, CLOCK_TOP);
+}
+
+// One frame of the rolling transition, `progress` from 0 (old digit still
+// dead centre, new digit a full cell-height below it, off screen) to 1
+// (old digit a full cell-height above centre, off screen; new digit now
+// dead centre - the same position drawRainbowGridDigitCell() would draw
+// it statically). Both digits are drawn into the one CELL_DIGIT_W x
+// CLOCK_H sprite at their current offsets; TFT_eSprite clips anything
+// outside those bounds for free, which is exactly what makes each digit
+// look like it's sliding through a fixed window rather than overflowing
+// into the cells above/below.
+void drawRainbowGridDigitCellAnimated(int col, char fromCh, char toCh, float progress) {
+  int x = colX(col);
+  int offset = (int)roundf(progress * CLOCK_H);
+  digitSpr.fillSprite(COL_BG);
+  digitSpr.setTextColor(COL_DIGIT_PALETTE[col], COL_BG);
+  digitSpr.setTextDatum(MC_DATUM);
+  digitSpr.drawString(String(fromCh), CELL_DIGIT_W / 2, CLOCK_H / 2 - offset);
+  digitSpr.drawString(String(toCh), CELL_DIGIT_W / 2, CLOCK_H / 2 - offset + CLOCK_H);
   applyDigitGloss(digitSpr, CELL_DIGIT_W, CLOCK_H);
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
@@ -796,6 +833,7 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
     lastWifiBars = -999;
     lastColonVisible = -1;
     for (int i = 0; i < CELL_COUNT; i++) lastDigit[i] = 0;
+    for (int i = 0; i < CELL_COUNT; i++) digitAnims[i].active = false;
   }
 
   // ---- clock digits ----
@@ -859,7 +897,28 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
         continue;
       }
       char ch = src[srcIdx++];
-      if (lastDigit[col] != ch) {
+      if (currentFace == FACE_RAINBOW_GRID) {
+        if (lastDigit[col] != ch) {
+          if (lastDigit[col] == 0) {
+            // First draw for this cell (just reset/switched to) - no
+            // previous digit to roll away from, so draw it directly.
+            drawRainbowGridDigitCell(col, ch);
+          } else {
+            digitAnims[col] = {lastDigit[col], ch, millis(), true};
+          }
+          lastDigit[col] = ch;
+        }
+        if (digitAnims[col].active) {
+          unsigned long elapsed = millis() - digitAnims[col].startMs;
+          if (elapsed >= DIGIT_ANIM_MS) {
+            digitAnims[col].active = false;
+            drawRainbowGridDigitCell(col, digitAnims[col].toCh);
+          } else {
+            drawRainbowGridDigitCellAnimated(col, digitAnims[col].fromCh, digitAnims[col].toCh,
+                                              (float)elapsed / DIGIT_ANIM_MS);
+          }
+        }
+      } else if (lastDigit[col] != ch) {
         drawDigitCell(col, ch);
         lastDigit[col] = ch;
       }
