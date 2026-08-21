@@ -469,15 +469,21 @@ int photoScaledWidth(const PhotoDigit *set, int d) {
 void drawPhotoDigitToSprite(const PhotoDigit *set, int d, uint16_t bg) {
   const PhotoDigit &pd = set[d];
   int sw = photoScaledWidth(set, d);
+  // Centred in the slot, not left-aligned: photoSlotW is sized for the
+  // widest digit across all three sets, so a narrow one (Silver's "1" is
+  // barely a quarter as wide as its own "4") left a lopsided gap of bare
+  // background to its right instead of splitting it evenly on both sides -
+  // most visible as uneven spacing between digits on hardware.
+  int offset = (photoSlotW - sw) / 2;
   for (int y = 0; y < PHOTO_H; y++) {
     int sy = (y * pd.h) / PHOTO_H;
     const uint16_t *row = pd.data + (size_t)sy * pd.w;
     for (int x = 0; x < photoSlotW; x++) {
-      if (x >= sw) {
+      if (x < offset || x >= offset + sw) {
         photoDigitSpr.drawPixel(x, y, bg);
         continue;
       }
-      int sx = (x * pd.w) / sw;
+      int sx = ((x - offset) * pd.w) / sw;
       photoDigitSpr.drawPixel(x, y, pgm_read_word(&row[sx]));
     }
   }
