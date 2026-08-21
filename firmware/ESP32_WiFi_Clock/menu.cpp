@@ -12,6 +12,23 @@ namespace {
 const unsigned long DEBOUNCE_MS = 30;
 const unsigned long LONG_PRESS_MS = 550;
 
+// Set by a hardware interrupt on each button's falling edge (see Btn::
+// begin()) - catches a press even if loop() is busy and doesn't get back
+// around to polling until well after the button's already been released
+// again. Needed because a single Video Face frame (SD read + redraw) can
+// block loop() for longer than a quick tap takes; without this, a tap
+// that started and finished entirely inside that blocked stretch was
+// never visible to plain digitalRead() polling at all - not delayed,
+// just gone, which is what made the buttons feel dead while a video
+// played. IRAM_ATTR keeps the ISR in internal RAM, required on the
+// ESP32 for code that can run while flash access is busy elsewhere.
+volatile bool leftEdgeFlag = false;
+volatile bool rightEdgeFlag = false;
+volatile bool okEdgeFlag = false;
+void IRAM_ATTR isrLeftEdge() { leftEdgeFlag = true; }
+void IRAM_ATTR isrRightEdge() { rightEdgeFlag = true; }
+void IRAM_ATTR isrOkEdge() { okEdgeFlag = true; }
+
 struct Btn {
   int pin = -1;
   int stable = HIGH;
@@ -19,10 +36,13 @@ struct Btn {
   unsigned long lastChangeMs = 0;
   unsigned long downAtMs = 0;
   bool longFired = false;
+  volatile bool *edgeFlag = nullptr;
 
-  void begin(int p) {
+  void begin(int p, volatile bool *flag, void (*isr)()) {
     pin = p;
     pinMode(pin, INPUT_PULLUP);
+    edgeFlag = flag;
+    attachInterrupt(digitalPinToInterrupt(pin), isr, FALLING);
   }
 
   // Sets tap=true on a completed short press-and-release, or
@@ -33,7 +53,29 @@ struct Btn {
     tap = false;
     longPress = false;
     unsigned long now = millis();
+
+    // A falling edge the interrupt caught, but the pin already reads HIGH
+    // (released) again and the debounced state machine below still thinks
+    // it's HIGH too (never saw the press) - the whole tap happened between
+    // two poll() calls. Synthesize it now rather than lose it. Only
+    // affects tap detection; a genuine hold is still observed live by the
+    // digitalRead() path below within its 550ms threshold, far longer
+    // than any single blocking video frame, so long-press needs no
+    // interrupt help.
+    bool edgeMissed = false;
+    if (edgeFlag) {
+      noInterrupts();
+      edgeMissed = *edgeFlag;
+      *edgeFlag = false;
+      interrupts();
+    }
+
     int r = digitalRead(pin);
+    if (edgeMissed && r == HIGH && stable == HIGH) {
+      tap = true;
+      return;
+    }
+
     if (r != lastRead) {
       lastChangeMs = now;
       lastRead = r;
@@ -629,9 +671,9 @@ void runSdBrowser() {
 namespace Menu {
 
 void begin() {
-  btnLeft.begin(BTN_LEFT_PIN);
-  btnRight.begin(BTN_RIGHT_PIN);
-  btnOk.begin(BTN_OK_PIN);
+  btnLeft.begin(BTN_LEFT_PIN, &leftEdgeFlag, isrLeftEdge);
+  btnRight.begin(BTN_RIGHT_PIN, &rightEdgeFlag, isrRightEdge);
+  btnOk.begin(BTN_OK_PIN, &okEdgeFlag, isrOkEdge);
 }
 
 bool runWifiPicker() {
