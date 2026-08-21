@@ -161,11 +161,12 @@ bool refreshNow() {
   fetching = false;
 
   if (!ok) {
-    // A 404 here means Nager.Date simply has no data for this country,
-    // which is a permanent answer rather than a transient failure -
-    // record it as an empty (but successful) list so the screen can say
-    // so instead of retrying every five minutes forever.
-    if (err == "HTTP 404") {
+    // Nager.Date answers "no holidays for this country/year" with either
+    // 404 or 204 (seen on hardware: it's 204, not 404) - both are a
+    // permanent answer rather than a transient failure, so record it as
+    // an empty (but successful) list rather than retrying every five
+    // minutes forever.
+    if (err == "HTTP 404" || err == "HTTP 204") {
       eventN = 0;
       everFetched = true;
       fetchedForCC = cc;
