@@ -897,7 +897,12 @@ void drawWeatherScreen(int scroll) {
   tft.setFreeFont(&FreeSansBold9pt7b);
   tft.setTextColor(COL_WX_LABEL, COL_BG);
   tft.drawString("Feels", infoX, 38);
-  tft.drawString("Humidity", infoX, 60);
+  // "Humid" not "Humidity": at 100% the value alone is 4 characters
+  // ("100%"), and the full word left too little of the ~116px column to
+  // fit both without overlapping - found by tools/preview's
+  // weather_long_names scene, not on any real forecast that happened to
+  // come back with a round humidity.
+  tft.drawString("Humid", infoX, 60);
   tft.drawString("Wind", infoX, 82);
   tft.setTextColor(TFT_WHITE, COL_BG);
   tft.setTextDatum(MR_DATUM);
@@ -954,13 +959,11 @@ void drawWeatherScreen(int scroll) {
     }
   }
 
-  // Scroll position, only once there's more than one screenful.
-  if (n > WX_COLS) {
-    tft.setFreeFont(nullptr);
-    tft.setTextDatum(MR_DATUM);
-    tft.setTextColor(COL_HINT_TXT, COL_BG);
-    tft.drawString("+" + String(scroll) + "h", W - 3, TFT_SCREEN_HEIGHT - 6);
-  }
+  // No separate scroll-position indicator: the hour labels above already
+  // show exactly which hours are on screen (scroll moves one hour at a
+  // time via lt/rt in runWeatherScreen(), not a full page), and a "+Nh"
+  // overlay here used to collide with the last column's rain-percentage
+  // text - found via tools/preview's weather_scrolled scene.
   tft.setFreeFont(nullptr);
 }
 
@@ -1228,6 +1231,27 @@ void runCalendarScreen() {
     delay(5);
   }
 }
+
+} // namespace
+
+namespace Menu {
+#ifdef HOST_PREVIEW
+void previewWeatherScreen(int scroll) { drawWeatherScreen(scroll); }
+void previewCalendarScreen(int viewYear, int viewMonth) { drawCalendarScreen(viewYear, viewMonth); }
+
+void previewWeatherNoCity() {
+  drawWeatherMessage("No city set", "Set one in Settings > Weather City,",
+                      "or on the clock's web page.", COL_WARN);
+}
+void previewWeatherNoForecastYet() {
+  drawWeatherMessage("No forecast yet", Weather::statusText(),
+                      Weather::resolvedLabel(), COL_WARN,
+                      "hold < or >: retry   OK: back");
+}
+#endif
+} // namespace Menu
+
+namespace {
 
 // Settings > Weather City: type a name, geocode it, report what it
 // resolved to (or why it didn't).

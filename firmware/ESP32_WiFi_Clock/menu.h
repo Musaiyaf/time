@@ -41,4 +41,24 @@ bool runWifiPicker();
 // runWifiPicker()). Used from setup() when there's no WiFi to connect to.
 bool askWifiOrManual();
 
+#ifdef HOST_PREVIEW
+// Host-preview only (see tools/preview): thin pass-throughs to the
+// otherwise-file-local drawWeatherScreen()/drawCalendarScreen(), so the
+// desktop render harness can paint the exact same screens the device
+// does without duplicating their layout code. Not compiled into the
+// firmware - guarded by the same macro the harness's build defines.
+void previewWeatherScreen(int scroll);
+void previewCalendarScreen(int viewYear, int viewMonth);
+// These two mirror runWeatherScreen()'s own gating exactly (same
+// strings, same call), rather than just calling previewWeatherScreen()
+// on posed empty data - on the device, "no city"/"no forecast yet"
+// never reach drawWeatherScreen() at all, they replace the whole screen
+// with drawWeatherMessage() instead. A preview scene that called
+// previewWeatherScreen() directly for these states would be showing a
+// composite (full current-conditions layout plus "no forecast" text)
+// that can never actually appear on hardware.
+void previewWeatherNoCity();
+void previewWeatherNoForecastYet();
+#endif
+
 } // namespace Menu
