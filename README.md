@@ -205,18 +205,21 @@ your router's client list instead). Reflash, hold OK for 3s at power-up, or
 use the on-device WiFi menu item to reconnect to a different network.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between five clock faces: the rainbow grid face; a retro LED face
+cycle between six clock faces: the rainbow grid face; a retro LED face
 (classic digital-alarm-clock style 7-segment digits, bright red on black,
 with a faint ghost of the unlit segments); [**Custom**](#custom-face),
 which shows your own background image and colours from an SD card;
 [**Video**](#video-wallpaper), which loops a short video clip fullscreen;
-and [**Photo**](#photo-face), a font-sampler face - each digit *value*
+[**Photo**](#photo-face), a font-sampler face - each digit *value*
 0-9 is its own real photographed typeface and colour, not one consistent
 font - on a plain white background (several of the digits are themselves
 too dark to read on the black background every other face uses), with a
-matching white status bar. The status bar re-skins to match whichever face
-is active (or hides entirely on Video). The choice isn't saved across a
-power cycle - it always starts on the rainbow grid face.
+matching white status bar; and **Glass**, liquid-glass digits (one
+consistent icy blue-white glass look, unlike Photo's mixed styles) on
+black, with dark tinted-glass status badges. The status bar re-skins to
+match whichever face is active (or hides entirely on Video). The choice
+isn't saved across a power cycle - it always starts on the rainbow grid
+face.
 
 ### Custom Face
 
