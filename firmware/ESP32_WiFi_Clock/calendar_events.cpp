@@ -102,7 +102,14 @@ const Event &at(int i) {
 String statusText() {
   if (fetching) return "Updating...";
   String cc = Weather::countryCode();
-  if (cc.length() == 0) return "No city set";
+  if (cc.length() != 2) {
+    // Tell apart "you haven't set a city" from "a city is set but its
+    // country hasn't been resolved yet" - the second is what a city
+    // saved before country codes were stored looks like, and it clears
+    // itself once Weather::loop() backfills it.
+    if (!Weather::hasCity()) return "No city set";
+    return (WiFi.status() == WL_CONNECTED) ? "Finding country..." : "No WiFi";
+  }
   if (!everFetched && WiFi.status() != WL_CONNECTED) return "No WiFi";
   if (everFetched && eventN == 0) return "Not available for " + cc;
   if (!everFetched) return lastError.length() ? lastError : "Updating...";
@@ -137,7 +144,7 @@ const char *nameOn(int year, int month, int day) {
 bool refreshNow() {
   String cc = Weather::countryCode();
   if (cc.length() != 2) {
-    lastError = "No city set";
+    lastError = Weather::hasCity() ? "Country unknown" : "No city set";
     return false;
   }
 

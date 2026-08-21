@@ -43,6 +43,15 @@ bool hasCity();
 // looks up its country from here rather than asking separately.
 String countryCode();
 
+// Makes sure countryCode() is populated, re-running the city lookup once
+// if it isn't. A city saved by a firmware build from before the code was
+// stored has coordinates but no country, which would otherwise leave the
+// calendar permanently unable to find one; this repairs that in the
+// background rather than making the user re-save a city that already
+// works. Blocking when it does fetch, a cheap no-op otherwise (including
+// a back-off after a failure). Returns true if a code is now known.
+bool ensureCountryCode();
+
 // Geocodes name and, if it resolves, saves it as the active city and
 // clears any previously fetched forecast (so the next refresh fetches
 // for the new location). Blocking - it makes one HTTPS request. Returns

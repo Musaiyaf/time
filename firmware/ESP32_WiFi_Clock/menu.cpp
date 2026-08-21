@@ -1185,12 +1185,16 @@ void runCalendarScreen() {
     }
   }
 
-  // Same "fetch on first open" courtesy as the weather screen.
-  if (!CalendarEvents::hasData() && Weather::countryCode().length() == 2 &&
+  // Same "fetch on first open" courtesy as the weather screen. The
+  // country-code repair has to happen here too, not just in the
+  // background loop: that loop is paused for as long as this blocking
+  // screen is open, so without this a clock whose saved city predates
+  // country codes would sit on "Finding country..." forever.
+  if (!CalendarEvents::hasData() && Weather::hasCity() &&
       WiFi.status() == WL_CONNECTED) {
-    drawWeatherMessage("Calendar", "Fetching holidays for",
-                        Weather::countryCode(), COL_CAL_EVENT, "");
-    CalendarEvents::refreshNow();
+    drawWeatherMessage("Calendar", "Finding holidays for",
+                        Weather::resolvedLabel(), COL_CAL_EVENT, "");
+    if (Weather::ensureCountryCode()) CalendarEvents::refreshNow();
   }
 
   bool dirtyLocal = true;
@@ -1211,9 +1215,9 @@ void runCalendarScreen() {
       dirtyLocal = true;
     }
     if (ll || rl) { // hold either arrow: refetch
-      drawWeatherMessage("Calendar", "Updating...", Weather::countryCode(),
+      drawWeatherMessage("Calendar", "Updating...", Weather::resolvedLabel(),
                           COL_CAL_EVENT, "");
-      CalendarEvents::refreshNow();
+      if (Weather::ensureCountryCode()) CalendarEvents::refreshNow();
       dirtyLocal = true;
     }
 

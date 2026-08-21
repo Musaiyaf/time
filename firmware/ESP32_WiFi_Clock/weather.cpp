@@ -37,6 +37,9 @@ unsigned long nextDueMs = 0;
 const unsigned long REFRESH_OK_MS = 15UL * 60UL * 1000UL; // 15 min when it works
 const unsigned long REFRESH_ERR_MS = 60UL * 1000UL;       // retry a failure sooner
 
+// When to next attempt the country-code backfill in loop() - see there.
+unsigned long ccBackfillDueMs = 0;
+
 // ---- response parsing --------------------------------------------------
 // The generic key lookups live in json_lite.h (shared with the holiday
 // calendar); only the hourly-timestamp reader below is specific to
@@ -88,6 +91,48 @@ int timeArrayIn(const String &s, int from, int to, long *whenOut, int8_t *hourOu
   return n;
 }
 
+
+// ---- geocoding ---------------------------------------------------------
+// Turns a typed city name into a display label, a two-letter country
+// code and coordinates. Shared by setCity() and the country-code
+// backfill below.
+bool geocode(const String &name, String &labelOut, String &ccOut,
+             float &latOut, float &lonOut, String &errOut) {
+  String url = String(WEATHER_GEOCODE_URL) + "?name=" + NetFetch::urlEncode(name) +
+               "&count=1&language=en&format=json";
+  String body;
+  if (!NetFetch::get(url, body, errOut)) return false;
+
+  // No match at all: the response is just {"generationtime_ms":...} with
+  // no "results" array.
+  int r = body.indexOf("\"results\"");
+  if (r < 0) {
+    errOut = "City not found";
+    return false;
+  }
+
+  int end = body.length();
+  float lat = JsonLite::numberIn(body, r, end, "\"latitude\":", 1e9f);
+  float lon = JsonLite::numberIn(body, r, end, "\"longitude\":", 1e9f);
+  if (lat > 1e8f || lon > 1e8f) {
+    errOut = "City not found";
+    return false;
+  }
+
+  String resolved = JsonLite::stringIn(body, r, end, "\"name\":");
+  String country = JsonLite::stringIn(body, r, end, "\"country\":");
+  // Exact key match: "country_code": differs from "country": before the
+  // closing quote, so this can't pick up the wrong one.
+  String cc = JsonLite::stringIn(body, r, end, "\"country_code\":");
+  cc.toUpperCase();
+
+  labelOut = resolved.length() ? resolved : name;
+  if (country.length()) labelOut += ", " + country;
+  ccOut = cc;
+  latOut = lat;
+  lonOut = lon;
+  return true;
+}
 
 // ---- NVS ---------------------------------------------------------------
 void saveLocation() {
@@ -188,41 +233,16 @@ bool setCity(const String &name, String &errOut) {
     return false;
   }
 
-  String url = String(WEATHER_GEOCODE_URL) + "?name=" + NetFetch::urlEncode(trimmed) +
-               "&count=1&language=en&format=json";
-  String body;
+  String label, cc;
+  float lat, lon;
   fetching = true;
-  bool ok = NetFetch::get(url, body, errOut);
+  bool ok = geocode(trimmed, label, cc, lat, lon, errOut);
   fetching = false;
   if (!ok) return false;
 
-  // No match at all: the response is just {"generationtime_ms":...} with
-  // no "results" array.
-  int r = body.indexOf("\"results\"");
-  if (r < 0) {
-    errOut = "City not found";
-    return false;
-  }
-
-  int end = body.length();
-  float lat = numberIn(body, r, end, "\"latitude\":", 1e9f);
-  float lon = numberIn(body, r, end, "\"longitude\":", 1e9f);
-  if (lat > 1e8f || lon > 1e8f) {
-    errOut = "City not found";
-    return false;
-  }
-
-  String resolved = stringIn(body, r, end, "\"name\":");
-  String country = stringIn(body, r, end, "\"country\":");
-  // Exact key match: "country_code": differs from "country": before the
-  // closing quote, so this can't pick up the wrong one.
-  String cc = stringIn(body, r, end, "\"country_code\":");
-
   savedCity = trimmed;
-  savedLabel = resolved.length() ? resolved : trimmed;
-  if (country.length()) savedLabel += ", " + country;
+  savedLabel = label;
   savedCC = cc;
-  savedCC.toUpperCase();
   savedLat = lat;
   savedLon = lon;
   cityKnown = true;
@@ -248,6 +268,31 @@ void clearCity() {
   hourN = 0;
   lastError = "";
   saveLocation();
+}
+
+bool ensureCountryCode() {
+  if (!cityKnown) return false;
+  if (savedCC.length() == 2) return true;
+  if (WiFi.status() != WL_CONNECTED) return false;
+  // Backed off like a failed forecast, so a city the geocoder simply
+  // won't return a code for doesn't turn into a request every loop().
+  if ((long)(millis() - ccBackfillDueMs) < 0) return false;
+
+  String label, cc, err;
+  float lat, lon;
+  fetching = true;
+  bool ok = geocode(savedCity, label, cc, lat, lon, err);
+  fetching = false;
+  if (!ok || cc.length() != 2) {
+    ccBackfillDueMs = millis() + REFRESH_ERR_MS;
+    return false;
+  }
+  savedLabel = label;
+  savedCC = cc;
+  savedLat = lat;
+  savedLon = lon;
+  saveLocation();
+  return true;
 }
 
 bool refreshNow() {
@@ -346,6 +391,9 @@ bool refreshNow() {
 void loop() {
   if (!cityKnown) return;
   if (WiFi.status() != WL_CONNECTED) return;
+
+  ensureCountryCode();
+
   if ((long)(millis() - nextDueMs) < 0) return;
   refreshNow();
 }
