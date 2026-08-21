@@ -1,8 +1,8 @@
 #include "weather.h"
 #include "config.h"
+#include "json_lite.h"
+#include "net_fetch.h"
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
 #include <Preferences.h>
 #include <time.h>
 
@@ -14,6 +14,7 @@ const char *NVS_NAMESPACE = "clockcfg";
 // ---- saved location ----------------------------------------------------
 String savedCity;     // exactly what the user typed
 String savedLabel;    // "City, Country" as the geocoder resolved it
+String savedCC;       // two-letter country code, for the holiday calendar
 float savedLat = 0, savedLon = 0;
 bool cityKnown = false;
 
@@ -36,70 +37,14 @@ unsigned long nextDueMs = 0;
 const unsigned long REFRESH_OK_MS = 15UL * 60UL * 1000UL; // 15 min when it works
 const unsigned long REFRESH_ERR_MS = 60UL * 1000UL;       // retry a failure sooner
 
-// ---- tiny JSON helpers -------------------------------------------------
-// Open-Meteo's responses are a fixed, flat shape (a couple of objects of
-// scalars plus some arrays of numbers), so picking values out by key is a
-// few lines of indexOf/atof - deliberately not worth pulling in a JSON
-// library and its parse-time RAM for. Same reasoning as the key=value
-// config parsing elsewhere in this firmware.
-//
-// Every lookup is scoped to a byte range so the "temperature_2m" inside
-// "current" can't be confused with the one inside "hourly" (or with the
-// units echo in "current_units"/"hourly_units"). Note that searching for
-// the key *including* its quotes and colon - "temperature_2m": - is
-// already unambiguous against "current_units": vs "current":, since they
-// differ before the closing quote.
-
-// Byte range of the object that follows "key":{ ... }. Returns false if
-// the key isn't there. These objects contain no nested objects, so the
-// next '}' really is the end of this one.
-bool objectRange(const String &s, const char *keyWithQuotes, int &start, int &end) {
-  int k = s.indexOf(keyWithQuotes);
-  if (k < 0) return false;
-  int brace = s.indexOf('{', k + (int)strlen(keyWithQuotes) - 1);
-  if (brace < 0) return false;
-  int close = s.indexOf('}', brace);
-  if (close < 0) return false;
-  start = brace;
-  end = close;
-  return true;
-}
-
-// Numeric value of "key": within [from, to). Returns fallback if absent.
-float numberIn(const String &s, int from, int to, const char *keyWithQuotes, float fallback) {
-  int k = s.indexOf(keyWithQuotes, from);
-  if (k < 0 || k >= to) return fallback;
-  int v = k + strlen(keyWithQuotes);
-  while (v < to && (s[v] == ' ' || s[v] == ':')) v++;
-  if (v >= to) return fallback;
-  if (s.startsWith("null", v)) return fallback;
-  return atof(s.c_str() + v);
-}
-
-// Reads the numeric array at "key":[ ... ] within [from, to) into out,
-// stopping at maxOut values. A JSON null becomes nullValue. Returns how
-// many were read.
-int numberArrayIn(const String &s, int from, int to, const char *keyWithQuotes,
-                   float *out, int maxOut, float nullValue) {
-  int k = s.indexOf(keyWithQuotes, from);
-  if (k < 0 || k >= to) return 0;
-  int i = s.indexOf('[', k + (int)strlen(keyWithQuotes) - 1);
-  if (i < 0 || i >= to) return 0;
-  i++; // past '['
-  int n = 0;
-  while (i < to && n < maxOut) {
-    while (i < to && (s[i] == ' ' || s[i] == ',')) i++;
-    if (i >= to || s[i] == ']') break;
-    if (s.startsWith("null", i)) {
-      out[n++] = nullValue;
-      i += 4;
-    } else {
-      out[n++] = atof(s.c_str() + i);
-      while (i < to && s[i] != ',' && s[i] != ']') i++;
-    }
-  }
-  return n;
-}
+// ---- response parsing --------------------------------------------------
+// The generic key lookups live in json_lite.h (shared with the holiday
+// calendar); only the hourly-timestamp reader below is specific to
+// Open-Meteo's forecast shape.
+using JsonLite::numberArrayIn;
+using JsonLite::numberIn;
+using JsonLite::objectRange;
+using JsonLite::stringIn;
 
 // Reads the ISO-8601 timestamps at "time":[ "...", ... ] within
 // [from, to), keeping only what we need to line them up against the
@@ -143,74 +88,13 @@ int timeArrayIn(const String &s, int from, int to, long *whenOut, int8_t *hourOu
   return n;
 }
 
-// Text value of "key":"..." within [from, to).
-String stringIn(const String &s, int from, int to, const char *keyWithQuotes) {
-  int k = s.indexOf(keyWithQuotes, from);
-  if (k < 0 || k >= to) return "";
-  int q = s.indexOf('"', k + strlen(keyWithQuotes)); // opening quote of the value
-  if (q < 0 || q >= to) return "";
-  int endq = s.indexOf('"', q + 1);
-  if (endq < 0 || endq >= to) return "";
-  return s.substring(q + 1, endq);
-}
-
-// ---- HTTP --------------------------------------------------------------
-String urlEncode(const String &in) {
-  String out;
-  out.reserve(in.length() * 3);
-  for (size_t i = 0; i < in.length(); i++) {
-    char c = in[i];
-    if (isalnum((unsigned char)c) || c == '-' || c == '_' || c == '.' || c == '~') {
-      out += c;
-    } else {
-      char buf[4];
-      snprintf(buf, sizeof(buf), "%%%02X", (unsigned char)c);
-      out += buf;
-    }
-  }
-  return out;
-}
-
-bool httpsGet(const String &url, String &out, String &errOut) {
-  if (WiFi.status() != WL_CONNECTED) {
-    errOut = "No WiFi";
-    return false;
-  }
-
-  WiFiClientSecure client;
-  // No certificate validation. This fetches public, read-only weather
-  // data over a connection nothing sensitive goes out on, and pinning a
-  // CA root here would mean re-flashing the clock whenever that root
-  // rotates - a poor trade for a device with no other way to update it.
-  client.setInsecure();
-
-  HTTPClient http;
-  http.setConnectTimeout(WEATHER_HTTP_TIMEOUT_MS);
-  http.setTimeout(WEATHER_HTTP_TIMEOUT_MS);
-  if (!http.begin(client, url)) {
-    errOut = "Connect failed";
-    return false;
-  }
-  int code = http.GET();
-  if (code != HTTP_CODE_OK) {
-    errOut = (code < 0) ? String("Network error") : ("HTTP " + String(code));
-    http.end();
-    return false;
-  }
-  out = http.getString();
-  http.end();
-  if (out.length() == 0) {
-    errOut = "Empty reply";
-    return false;
-  }
-  return true;
-}
 
 // ---- NVS ---------------------------------------------------------------
 void saveLocation() {
   prefs.begin(NVS_NAMESPACE, false);
   prefs.putString("wxcity", savedCity);
   prefs.putString("wxlabel", savedLabel);
+  prefs.putString("wxcc", savedCC);
   prefs.putFloat("wxlat", savedLat);
   prefs.putFloat("wxlon", savedLon);
   prefs.end();
@@ -224,6 +108,7 @@ void begin() {
   prefs.begin(NVS_NAMESPACE, true);
   savedCity = prefs.getString("wxcity", "");
   savedLabel = prefs.getString("wxlabel", "");
+  savedCC = prefs.getString("wxcc", "");
   savedLat = prefs.getFloat("wxlat", 0);
   savedLon = prefs.getFloat("wxlon", 0);
   prefs.end();
@@ -233,6 +118,7 @@ void begin() {
 String cityName() { return savedCity; }
 String resolvedLabel() { return savedLabel.length() ? savedLabel : savedCity; }
 bool hasCity() { return cityKnown; }
+String countryCode() { return savedCC; }
 bool hasForecast() { return forecastValid; }
 
 long secondsSinceUpdate() {
@@ -302,11 +188,11 @@ bool setCity(const String &name, String &errOut) {
     return false;
   }
 
-  String url = String(WEATHER_GEOCODE_URL) + "?name=" + urlEncode(trimmed) +
+  String url = String(WEATHER_GEOCODE_URL) + "?name=" + NetFetch::urlEncode(trimmed) +
                "&count=1&language=en&format=json";
   String body;
   fetching = true;
-  bool ok = httpsGet(url, body, errOut);
+  bool ok = NetFetch::get(url, body, errOut);
   fetching = false;
   if (!ok) return false;
 
@@ -328,10 +214,15 @@ bool setCity(const String &name, String &errOut) {
 
   String resolved = stringIn(body, r, end, "\"name\":");
   String country = stringIn(body, r, end, "\"country\":");
+  // Exact key match: "country_code": differs from "country": before the
+  // closing quote, so this can't pick up the wrong one.
+  String cc = stringIn(body, r, end, "\"country_code\":");
 
   savedCity = trimmed;
   savedLabel = resolved.length() ? resolved : trimmed;
   if (country.length()) savedLabel += ", " + country;
+  savedCC = cc;
+  savedCC.toUpperCase();
   savedLat = lat;
   savedLon = lon;
   cityKnown = true;
@@ -349,6 +240,7 @@ bool setCity(const String &name, String &errOut) {
 void clearCity() {
   savedCity = "";
   savedLabel = "";
+  savedCC = "";
   savedLat = savedLon = 0;
   cityKnown = false;
   forecastValid = false;
@@ -374,7 +266,7 @@ bool refreshNow() {
 
   String body, err;
   fetching = true;
-  bool ok = httpsGet(String(url), body, err);
+  bool ok = NetFetch::get(String(url), body, err);
   fetching = false;
   if (!ok) {
     lastError = err;

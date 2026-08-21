@@ -94,7 +94,8 @@ firmware uses `INPUT_PULLUP`, so no external resistor is needed):
 | OK | 0 | The BOOT button - most ESP32-S3 dev boards already have this wired, so OK usually needs no extra hardware. |
 
 LEFT/RIGHT cycle clock faces; holding LEFT opens the
-[weather screen](#weather); holding OK opens the on-device settings menu
+[weather screen](#weather) and holding RIGHT the
+[calendar](#calendar); holding OK opens the on-device settings menu
 (see [Using the clock](#using-the-clock)). Holding OK for 3
 seconds right after power-up wipes any saved WiFi credentials, so the
 next boot starts fresh with the "no WiFi" try-again-or-Manual-Mode
@@ -112,8 +113,11 @@ firmware/ESP32_WiFi_Clock/
   web_portal.h/.cpp       - the setup webserver (scan/save/reset routes)
   webpage_html.h          - the self-contained HTML/CSS/JS setup page
   clock_display.h/.cpp    - TFT_eSPI rendering of the clock theme
-  menu.h/.cpp             - on-device main menu, settings menu and weather screen
+  menu.h/.cpp             - on-device menus plus the weather and calendar screens
   weather.h/.cpp          - Open-Meteo current conditions + hourly forecast (no API key)
+  calendar_events.h/.cpp  - Nager.Date public holidays for the city's country (no API key)
+  net_fetch.h/.cpp        - the one shared HTTPS GET both of those use
+  json_lite.h             - the few JSON lookups they need, instead of a JSON library
   tz_database.h           - ~430 IANA zones grouped by continent, for menu.cpp
   rtc_backup.h/.cpp        - optional DS3231 backup RTC over I2C (raw Wire, no library)
   sd_card.h/.cpp           - optional SD card module (SD/SPI, ships with the ESP32 core)
@@ -306,6 +310,31 @@ made over HTTPS without certificate validation
 (`client.setInsecure()` in `weather.cpp`) — a deliberate trade for a
 device fetching public, read-only data that has no way to update a
 pinned CA root short of a reflash.
+
+### Calendar
+
+**Hold RIGHT** on any clock face for the calendar: a month grid with
+today boxed in cyan and festival days picked out in orange, and the next
+four festivals listed down the right-hand side with their dates.
+LEFT/RIGHT step through months, holding either refetches, and OK returns
+to the clock.
+
+Holidays come from [Nager.Date](https://date.nager.at) - key-free like
+the weather API - for whichever country the [weather city](#weather)
+resolved to, so **setting a city is the only setup either feature
+needs**. Two honest limits worth knowing:
+
+- Nager.Date doesn't cover every country. When it has nothing for yours
+  the screen says `Not available for XX` rather than sitting blank, and
+  the month grid still works as a plain calendar.
+- It lists *public holidays*, which covers the major festivals in most
+  countries but isn't an exhaustive festival calendar, and names show in
+  English - the display fonts are ASCII-only, so a local-script name
+  would come out as stray glyphs rather than letters.
+
+The list is fetched once the clock comes online and refreshed twice a
+day; near year-end it also pulls the following year in, so "coming up"
+doesn't run dry every December.
 
 **On-device main menu:** hold OK (not a tap - hold it down) on any clock
 face to open the top-level menu: three icon tiles, **SD Card**,

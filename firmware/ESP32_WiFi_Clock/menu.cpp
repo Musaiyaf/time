@@ -3,6 +3,7 @@
 #include "clock_display.h"
 #include "wifi_manager.h"
 #include "weather.h"
+#include "calendar_events.h"
 #include "tz_database.h"
 #include "sd_card.h"
 #include <WiFi.h>
@@ -851,14 +852,33 @@ void drawWeatherScreen(int scroll) {
   tft.fillScreen(COL_BG);
 
   // ---- header: where, and how fresh ----
+  // The age gets the compact wording here ("4 min ago", not "Updated 4
+  // min ago") - the full sentence from statusText() left so little room
+  // that both halves ended up as ellipses. The city then gets whatever
+  // width is actually left over rather than a fixed guess.
   tft.fillRect(0, 0, W, 22, COL_HEADING_BG);
   tft.setFreeFont(&FreeSansBold9pt7b);
-  tft.setTextDatum(ML_DATUM);
-  tft.setTextColor(COL_HEADING_TXT, COL_HEADING_BG);
-  tft.drawString(fitToWidth(tft, Weather::resolvedLabel(), 180), 6, 11);
+
+  String age;
+  long secs = Weather::secondsSinceUpdate();
+  if (!Weather::hasForecast() || secs < 0) {
+    age = Weather::statusText();
+  } else if (secs < 90) {
+    age = "just now";
+  } else if (secs < 3600) {
+    age = String(secs / 60) + " min ago";
+  } else {
+    age = String(secs / 3600) + "h ago";
+  }
+  age = fitToWidth(tft, age, 110);
+
   tft.setTextDatum(MR_DATUM);
   tft.setTextColor(COL_ITEM_TXT_DIM, COL_HEADING_BG);
-  tft.drawString(fitToWidth(tft, Weather::statusText(), 128), W - 6, 11);
+  tft.drawString(age, W - 6, 11);
+
+  tft.setTextDatum(ML_DATUM);
+  tft.setTextColor(COL_HEADING_TXT, COL_HEADING_BG);
+  tft.drawString(fitToWidth(tft, Weather::resolvedLabel(), W - 18 - tft.textWidth(age)), 6, 11);
 
   // ---- current conditions ----
   drawWxIcon(tft, 36, 56, 20, Weather::currentCode());
@@ -893,7 +913,12 @@ void drawWeatherScreen(int scroll) {
   }
 
   // ---- next hours ----
-  const int stripTop = 96;
+  // Four stacked rows in the ~76px below the divider, so the vertical
+  // budget is tight: hour label, icon, temperature, rain chance. The
+  // rain chance is drawn in the compact built-in font rather than 9pt -
+  // at 9pt its 22px line box both collided with the temperature above it
+  // and ran off the bottom of the 170px panel.
+  const int stripTop = 94;
   tft.drawFastHLine(0, stripTop, W, COL_TILE_BORDER);
 
   int n = Weather::hourCount();
@@ -915,16 +940,17 @@ void drawWeatherScreen(int scroll) {
     tft.setFreeFont(&FreeSansBold9pt7b);
     tft.setTextDatum(MC_DATUM);
     tft.setTextColor(COL_WX_LABEL, COL_BG);
-    tft.drawString(pad2(h.hour), cx, stripTop + 12);
+    tft.drawString(pad2(h.hour), cx, stripTop + 11);
 
-    drawWxIcon(tft, cx, stripTop + 34, 10, h.code);
+    drawWxIcon(tft, cx, stripTop + 31, 9, h.code);
 
-    drawTempCentred(tft, cx, stripTop + 54, h.tempC, 3, TFT_WHITE);
+    drawTempCentred(tft, cx, stripTop + 53, h.tempC, 3, TFT_WHITE);
 
     if (h.precipPct > 0) {
+      tft.setFreeFont(nullptr); // built-in 6x8: fits the last 10px cleanly
       tft.setTextDatum(MC_DATUM);
       tft.setTextColor(COL_WX_RAIN, COL_BG);
-      tft.drawString(String(h.precipPct) + "%", cx, stripTop + 68);
+      tft.drawString(String(h.precipPct) + "%", cx, stripTop + 70);
     }
   }
 
@@ -1005,6 +1031,194 @@ void runWeatherScreen() {
 
     if (dirtyLocal) {
       drawWeatherScreen(scroll);
+      dirtyLocal = false;
+    }
+    delay(5);
+  }
+}
+
+// ---- Calendar screen ---------------------------------------------------
+// Opened by holding RIGHT from any clock face, mirroring LEFT-hold for
+// the weather. A month grid on the left with today boxed and festival
+// days picked out in colour, and the next festivals listed on the right
+// - see calendar_events.h for where they come from.
+
+const uint16_t COL_CAL_EVENT = rgb565(255, 170, 60);  // festival days + dates
+const uint16_t COL_CAL_TODAY = rgb565(0, 200, 255);   // today's highlight
+const uint16_t COL_CAL_DIM   = rgb565(120, 128, 142); // weekday header
+
+const char *const CAL_MONTHS[12] = {"January", "February", "March",     "April",
+                                    "May",     "June",     "July",      "August",
+                                    "September", "October", "November", "December"};
+const char *const CAL_MON_ABBR[12] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                      "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
+
+// Day of week (0=Sunday) for a date, via mktime's normalisation. Noon
+// avoids any DST-transition edge landing the result on the wrong day.
+int dayOfWeek(int year, int month, int day) {
+  struct tm t = {};
+  t.tm_year = year - 1900;
+  t.tm_mon = month - 1;
+  t.tm_mday = day;
+  t.tm_hour = 12;
+  t.tm_isdst = -1;
+  mktime(&t);
+  return t.tm_wday;
+}
+
+void drawCalendarScreen(int viewYear, int viewMonth) {
+  TFT_eSPI &tft = ClockDisplay::rawDisplay();
+  const int W = TFT_SCREEN_WIDTH;
+  tft.fillScreen(COL_BG);
+
+  int ty = 0, tm = 0, td = 0;
+  bool haveToday = false;
+  {
+    struct tm now;
+    if (getLocalTime(&now, 5)) {
+      ty = now.tm_year + 1900;
+      tm = now.tm_mon + 1;
+      td = now.tm_mday;
+      haveToday = true;
+    }
+  }
+
+  // ---- header ----
+  tft.fillRect(0, 0, W, 22, COL_HEADING_BG);
+  tft.setFreeFont(&FreeSansBold9pt7b);
+  tft.setTextDatum(ML_DATUM);
+  tft.setTextColor(COL_HEADING_TXT, COL_HEADING_BG);
+  tft.drawString(String(CAL_MONTHS[viewMonth - 1]) + " " + String(viewYear), 6, 11);
+  tft.setTextDatum(MR_DATUM);
+  tft.setTextColor(COL_ITEM_TXT_DIM, COL_HEADING_BG);
+  tft.drawString(fitToWidth(tft, CalendarEvents::statusText(), 110), W - 6, 11);
+
+  // ---- month grid (left) ----
+  const int gridX = 4, gridW = 161, colW = 23;
+  const int hdrY = 32;
+  tft.setFreeFont(nullptr); // built-in 6x8 - a 7-column grid has no room for more
+  tft.setTextDatum(MC_DATUM);
+  static const char *const DOW = "SMTWTFS";
+  tft.setTextColor(COL_CAL_DIM, COL_BG);
+  for (int c = 0; c < 7; c++) {
+    tft.drawString(String(DOW[c]), gridX + c * colW + colW / 2, hdrY);
+  }
+
+  int firstDow = dayOfWeek(viewYear, viewMonth, 1);
+  int nDays = daysInMonth(viewYear, viewMonth); // shared with the Date/Time setter
+  const int rowY0 = 48, rowH = 20;
+
+  for (int day = 1; day <= nDays; day++) {
+    int cell = firstDow + day - 1;
+    int r = cell / 7, c = cell % 7;
+    int cx = gridX + c * colW + colW / 2;
+    int cy = rowY0 + r * rowH;
+
+    bool isToday = haveToday && viewYear == ty && viewMonth == tm && day == td;
+    bool isEvent = CalendarEvents::isEventDay(viewYear, viewMonth, day);
+
+    if (isToday) {
+      tft.fillRoundRect(cx - 10, cy - 8, 20, 17, 4, COL_CAL_TODAY);
+      tft.setTextColor(COL_BG, COL_CAL_TODAY);
+    } else {
+      tft.setTextColor(isEvent ? COL_CAL_EVENT : TFT_WHITE, COL_BG);
+    }
+    tft.setTextDatum(MC_DATUM);
+    tft.drawString(String(day), cx, cy);
+
+    // A dot under a festival day that's also today, where the colour
+    // itself is already spoken for by the highlight.
+    if (isEvent && isToday) tft.fillCircle(cx, cy + 12, 2, COL_CAL_EVENT);
+  }
+
+  tft.drawFastVLine(gridX + gridW + 4, 26, TFT_SCREEN_HEIGHT - 30, COL_TILE_BORDER);
+
+  // ---- coming up (right) ----
+  const int listX = gridX + gridW + 12;
+  const int listW = W - listX - 4;
+
+  tft.setFreeFont(&FreeSansBold9pt7b);
+  tft.setTextDatum(ML_DATUM);
+  tft.setTextColor(COL_CAL_DIM, COL_BG);
+  tft.drawString("COMING UP", listX, 34);
+
+  if (!CalendarEvents::hasData()) {
+    tft.setFreeFont(nullptr);
+    tft.setTextColor(COL_ITEM_TXT_DIM, COL_BG);
+    String msg = CalendarEvents::statusText();
+    tft.drawString(fitToWidth(tft, msg, listW), listX, 60);
+    tft.setFreeFont(nullptr);
+    return;
+  }
+
+  int start = haveToday ? CalendarEvents::firstOnOrAfter(ty, tm, td) : 0;
+  int shownRows = 0;
+  for (int i = start; i < CalendarEvents::count() && shownRows < 4; i++, shownRows++) {
+    const CalendarEvents::Event &e = CalendarEvents::at(i);
+    int y = 56 + shownRows * 29;
+
+    tft.setFreeFont(&FreeSansBold9pt7b);
+    tft.setTextDatum(ML_DATUM);
+    tft.setTextColor(COL_CAL_EVENT, COL_BG);
+    tft.drawString(String(CAL_MON_ABBR[e.month - 1]) + " " + String(e.day), listX, y);
+
+    tft.setFreeFont(nullptr); // 6x8: fits ~23 characters of name in the column
+    tft.setTextColor(TFT_WHITE, COL_BG);
+    tft.drawString(fitToWidth(tft, String(e.name), listW), listX, y + 13);
+  }
+
+  if (shownRows == 0) {
+    tft.setFreeFont(nullptr);
+    tft.setTextColor(COL_ITEM_TXT_DIM, COL_BG);
+    tft.drawString("Nothing left this year", listX, 60);
+  }
+  tft.setFreeFont(nullptr);
+}
+
+void runCalendarScreen() {
+  int viewYear = 2026, viewMonth = 1;
+  {
+    struct tm now;
+    if (getLocalTime(&now, 200)) {
+      viewYear = now.tm_year + 1900;
+      viewMonth = now.tm_mon + 1;
+    }
+  }
+
+  // Same "fetch on first open" courtesy as the weather screen.
+  if (!CalendarEvents::hasData() && Weather::countryCode().length() == 2 &&
+      WiFi.status() == WL_CONNECTED) {
+    drawWeatherMessage("Calendar", "Fetching holidays for",
+                        Weather::countryCode(), COL_CAL_EVENT, "");
+    CalendarEvents::refreshNow();
+  }
+
+  bool dirtyLocal = true;
+  while (true) {
+    bool lt, ll, rt, rl, ot, ol;
+    btnLeft.poll(lt, ll);
+    btnRight.poll(rt, rl);
+    btnOk.poll(ot, ol);
+
+    if (ot || ol) return;
+
+    if (lt) {
+      if (--viewMonth < 1) { viewMonth = 12; viewYear--; }
+      dirtyLocal = true;
+    }
+    if (rt) {
+      if (++viewMonth > 12) { viewMonth = 1; viewYear++; }
+      dirtyLocal = true;
+    }
+    if (ll || rl) { // hold either arrow: refetch
+      drawWeatherMessage("Calendar", "Updating...", Weather::countryCode(),
+                          COL_CAL_EVENT, "");
+      CalendarEvents::refreshNow();
+      dirtyLocal = true;
+    }
+
+    if (dirtyLocal) {
+      drawCalendarScreen(viewYear, viewMonth);
       dirtyLocal = false;
     }
     delay(5);
@@ -1153,6 +1367,7 @@ bool handle() {
       if (leftTap) ClockDisplay::prevFace();
       if (rightTap) ClockDisplay::nextFace();
       if (leftLong) { runWeatherScreen(); ClockDisplay::forceFullRedraw(); }
+      if (rightLong) { runCalendarScreen(); ClockDisplay::forceFullRedraw(); }
       if (okLong) enterMain();
       break;
 

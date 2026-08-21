@@ -93,7 +93,19 @@
 // How many hours ahead to fetch. The weather screen shows 6 at a time
 // and scrolls through the rest with LEFT/RIGHT.
 #define WEATHER_FORECAST_HOURS 12
-#define WEATHER_HTTP_TIMEOUT_MS 8000
+
+// ---------------------------------------------------------------------
+// Holiday calendar (see calendar_events.h). Nager.Date is also key-free;
+// which country's holidays to fetch comes from the weather city's
+// country code, so there's nothing separate to configure. Not every
+// country is covered by their dataset - the calendar screen says so
+// plainly when the clock's country isn't.
+// ---------------------------------------------------------------------
+#define HOLIDAY_API_URL "https://date.nager.at/api/v3/PublicHolidays"
+#define HOLIDAY_MAX_EVENTS 40
+
+// Shared HTTPS timeout for both of the above (see net_fetch.h).
+#define NET_HTTP_TIMEOUT_MS 8000
 
 // ---------------------------------------------------------------------
 // Optional SD card module (SPI) - lets the on-device menu browse its

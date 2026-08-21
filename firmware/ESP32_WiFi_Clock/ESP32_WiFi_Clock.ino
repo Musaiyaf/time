@@ -11,9 +11,12 @@
 // - Hold the OK button (GPIO0/BOOT) for 3s at power-up to wipe saved WiFi
 //   settings and force that same "no WiFi" prompt on the next boot.
 // - While the clock is running: LEFT/RIGHT tap cycles clock faces; holding
-//   OK opens the on-device main menu (SD Card, Settings, Back) navigated
-//   with the same three buttons - see menu.h/menu.cpp. Settings holds
-//   WiFi, Time Zone, Date/Time and About; WiFi there scans, lets you pick
+//   LEFT opens the weather screen and holding RIGHT the festival calendar
+//   (see weather.h / calendar_events.h - both keyed off one city name);
+//   holding OK opens the on-device main menu (SD Card, Settings, Back)
+//   navigated with the same three buttons - see menu.h/menu.cpp. Settings
+//   holds WiFi, Time Zone, Date/Time, Weather City and About; WiFi there
+//   scans, lets you pick
 //   a network and type its password on an on-screen keyboard, then
 //   connects (this also gets you out of Manual Mode, and re-syncs the
 //   real time over NTP once connected). SD Card is a read-only browser
@@ -43,6 +46,7 @@
 #include "rtc_backup.h"
 #include "sd_card.h"
 #include "weather.h"
+#include "calendar_events.h"
 
 WebServer server(80);
 DNSServer dnsServer;
@@ -80,7 +84,8 @@ void setup() {
   RtcBackup::begin(); // probes for an optional DS3231 backup RTC
   SdCard::begin();    // probes for an optional SD card module
   WifiManager::begin();
-  Weather::begin();   // loads the saved weather city, if one is set
+  Weather::begin();          // loads the saved weather city, if one is set
+  CalendarEvents::begin();   // holidays are fetched fresh once online
 
   // Hold the OK button for 3s right after boot to wipe saved WiFi. This
   // only runs once, here, before Menu::begin() sets up button polling for
@@ -159,6 +164,7 @@ void loop() {
   // TLS handshake, which is fine against the clock's own once-a-second
   // redraw but would stall a menu mid-interaction.
   Weather::loop();
+  CalendarEvents::loop();
 
   static unsigned long lastWifiCheck = 0;
   static unsigned long lastRender = 0;

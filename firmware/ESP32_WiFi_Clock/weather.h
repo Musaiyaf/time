@@ -38,6 +38,11 @@ String cityName();
 String resolvedLabel();
 bool hasCity();
 
+// The two-letter country code the city resolved to ("LK", "GB", ...),
+// or "" if no city is set. The holiday calendar (calendar_events.h)
+// looks up its country from here rather than asking separately.
+String countryCode();
+
 // Geocodes name and, if it resolves, saves it as the active city and
 // clears any previously fetched forecast (so the next refresh fetches
 // for the new location). Blocking - it makes one HTTPS request. Returns
