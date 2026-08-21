@@ -4,6 +4,7 @@
 #include "video_player.h"
 #include "PhotoDigits.h"
 #include "BotanicalDigits.h"
+#include "SilverDigits.h"
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
 // TFT_eSPI.h (with LOAD_GFXFF enabled) already pulls in every Adafruit GFX
@@ -116,6 +117,24 @@ const BadgeTheme THEME_BOTANICAL = {
   COL_BOTANICAL_BG, COL_BOTANICAL_TEXT,   // wifi
 };
 
+// Silver face: plain black behind the chrome digits (their own crop keeps
+// a slice of that same black background baked in - see SilverDigits.h -
+// so the digit row's edges disappear into it with no visible seam). The
+// badges get a dark gunmetal fill rather than pure black, deliberately
+// non-zero: applyDigitGloss() below treats colour 0 as "background, leave
+// untouched", so a literally black pill would make the shine effect this
+// face was built for silently do nothing.
+const uint16_t COL_SILVER_BADGE = tft.color565(58, 60, 66);
+const uint16_t COL_SILVER_TEXT  = tft.color565(232, 234, 238);
+const BadgeTheme THEME_SILVER = {
+  COL_SILVER_BADGE, COL_SILVER_TEXT,   // year
+  COL_SILVER_BADGE, COL_SILVER_TEXT,   // month
+  COL_SILVER_BADGE, COL_SILVER_TEXT,   // day
+  COL_SILVER_BADGE, COL_SILVER_TEXT,   // week
+  COL_SILVER_BADGE, COL_SILVER_TEXT,   // day-of-year
+  COL_SILVER_BADGE, COL_SILVER_TEXT,   // wifi
+};
+
 // ---- Layout -----------------------------------------------------------
 const int SCR_W = TFT_SCREEN_WIDTH;
 const int SCR_H = TFT_SCREEN_HEIGHT;
@@ -176,7 +195,8 @@ enum ClockFaceId {
   FACE_VIDEO = 2,
   FACE_PHOTO = 3,
   FACE_BOTANICAL = 4,
-  FACE_COUNT = 5
+  FACE_SILVER = 5,
+  FACE_COUNT = 6
 };
 int currentFace = FACE_RAINBOW_GRID;
 
@@ -184,8 +204,15 @@ const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
   if (currentFace == FACE_PHOTO) return THEME_PHOTO;
   if (currentFace == FACE_BOTANICAL) return THEME_BOTANICAL;
+  if (currentFace == FACE_SILVER) return THEME_SILVER;
   return THEME_RAINBOW;
 }
+
+// Silver Face's own gloss pass over the status bar badges - see
+// applyDigitGloss()'s definition further down for the actual pixel math
+// (shared with the rainbow grid face's digit cells). Only this face wants
+// its badges to shine; every other theme keeps its flat pill fill.
+bool badgeGlossActive() { return currentFace == FACE_SILVER; }
 
 // ---- state cache, so we only repaint what changed --------------------
 char lastDigit[CELL_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0};
@@ -373,27 +400,30 @@ void ensureDigitFont() {
 }
 
 // ---- Photo faces --------------------------------------------------------
-// Two faces built from real digit images (RGB565), not a font: Photo
+// Three faces built from real digit images (RGB565), not a font: Photo
 // (PhotoDigits.h, background removed, a font-sampler style - a different
 // typeface/colour per digit value, several of them dark, so it needs a
-// light background or half of them are near-invisible) and Botanical
+// light background or half of them are near-invisible), Botanical
 // (BotanicalDigits.h, illuminated-manuscript digits - their own black
 // panel is part of the artwork, kept as-is rather than background-
-// removed). Each digit has a different native size, so unlike every other
-// face these can't reuse the fixed CELL_DIGIT_W column grid: laid out
-// edge to edge at their native aspect ratio, a full row would run well
-// past this 320px screen. Every digit is instead scaled to a single
-// fixed-width slot (photoSlotW, computed below as the widest digit across
-// BOTH sets at PHOTO_H tall, so one shared size/layout serves either
-// face) so the whole row's width - and thus its centred x position -
-// never changes between redraws; without that, the row would visibly
-// jump sideways every second as narrower/wider digits rotated through.
+// removed), and Silver (SilverDigits.h, chrome-gradient numerals with a
+// soft glow, same black-backdrop-kept-as-is treatment as Botanical's).
+// Each digit has a different native size, so unlike every other face
+// these can't reuse the fixed CELL_DIGIT_W column grid: laid out edge to
+// edge at their native aspect ratio, a full row would run well past this
+// 320px screen. Every digit is instead scaled to a single fixed-width slot
+// (photoSlotW, computed below as the widest digit across all three sets
+// at PHOTO_H tall, so one shared size/layout serves all of them) so the
+// whole row's width - and thus its centred x position - never changes
+// between redraws; without that, the row would visibly jump sideways
+// every second as narrower/wider digits rotated through.
 //
 // Shows all 6 digits (HH:MM:SS). At a fixed size that must never clip on
 // any possible time, that caps PHOTO_H well below the cell height (140px)
 // - it's bounded by the digits' own aspect ratio, not by how tight the
 // gaps/colon widths get (tried several combinations; none clear ~53px,
-// Botanical's "7" at ~0.91 being the tighter of the two sets' worst case).
+// Botanical's "7" at ~0.91 being the tightest of the three sets' worst
+// case - Silver's widest, "4" at ~0.81, doesn't change that bound).
 const int PHOTO_GAP = 1;       // gap between adjacent digit/colon slots
 const int PHOTO_COLON_W = 7;
 const int PHOTO_H = 53;
@@ -405,15 +435,24 @@ int photoRowY = 0;
 // mixed set includes several dark digits (black/dark-brown/dark-navy)
 // that would be near-invisible on black, so it gets a white background
 // and dark colon dots; Botanical's digits already carry their own black
-// panel, so they sit on the same deep green as their badges.
+// panel, so they sit on the same deep green as their badges. Silver's
+// digits carry their own black backdrop too (see SilverDigits.h), so like
+// Botanical they sit on a matching background rather than white - here
+// that's plain black, with light colon dots to read against it.
 const PhotoDigit *activePhotoSet() {
-  return (currentFace == FACE_BOTANICAL) ? BOTANICAL_DIGITS : PHOTO_DIGITS;
+  if (currentFace == FACE_BOTANICAL) return BOTANICAL_DIGITS;
+  if (currentFace == FACE_SILVER) return SILVER_DIGITS;
+  return PHOTO_DIGITS;
 }
 uint16_t activePhotoBg() {
-  return (currentFace == FACE_BOTANICAL) ? COL_BOTANICAL_BG : TFT_WHITE;
+  if (currentFace == FACE_BOTANICAL) return COL_BOTANICAL_BG;
+  if (currentFace == FACE_SILVER) return COL_BG;
+  return TFT_WHITE;
 }
 uint16_t activePhotoColonColor() {
-  return (currentFace == FACE_BOTANICAL) ? COL_BOTANICAL_TEXT : TFT_BLACK;
+  if (currentFace == FACE_BOTANICAL) return COL_BOTANICAL_TEXT;
+  if (currentFace == FACE_SILVER) return COL_SILVER_TEXT;
+  return TFT_BLACK;
 }
 
 // Scaled width of digit d (0-9) in the given set at a fixed height of
@@ -526,6 +565,10 @@ void drawPillBadge(TFT_eSprite &spr, const Badge &b, uint16_t bg, const String &
     spr.drawString(part2, startX + w1, midY);
   }
 
+  // Gloss (Silver Face only) before the corner carve, same order the
+  // rainbow grid digit cells use - see applyDigitGloss()'s own comment.
+  if (badgeGlossActive()) applyDigitGloss(spr, b.w, TOPBAR_H);
+
   // Carve LAST, after the text. drawString() is called with an opaque
   // background colour, so TFT_eSPI paints a filled box behind every glyph -
   // carving first meant that box repainted the corners solid again, most
@@ -581,6 +624,7 @@ void drawMonthDayBadge(int mon, int mday) {
   mdaySpr.drawString(dayBuf, splitX + (b.w - splitX) / 2, midY);
 
   // Carve last - see the note in drawPillBadge().
+  if (badgeGlossActive()) applyDigitGloss(mdaySpr, b.w, TOPBAR_H);
   carveRoundCorners(mdaySpr, 0, BADGE_MARGIN_Y, b.w, pillH, BADGE_RADIUS, COL_BG);
   mdaySpr.pushSprite(b.x, 0);
 }
@@ -617,6 +661,7 @@ void drawWifiBadge(bool connected, int rssi) {
 
   // Carve last - see the note in drawPillBadge(). The leftmost signal bar
   // reaches into the bottom-left corner zone, so this matters here too.
+  if (badgeGlossActive()) applyDigitGloss(wifiSpr, b.w, TOPBAR_H);
   carveRoundCorners(wifiSpr, 0, BADGE_MARGIN_Y, b.w, pillH, BADGE_RADIUS, COL_BG);
   wifiSpr.pushSprite(b.x, 0);
 }
@@ -653,6 +698,7 @@ void begin() {
   for (int d = 0; d <= 9; d++) {
     photoSlotW = max(photoSlotW, photoScaledWidth(PHOTO_DIGITS, d));
     photoSlotW = max(photoSlotW, photoScaledWidth(BOTANICAL_DIGITS, d));
+    photoSlotW = max(photoSlotW, photoScaledWidth(SILVER_DIGITS, d));
   }
   photoDigitSpr.createSprite(photoSlotW, PHOTO_H);
   int photoRowW = 6 * photoSlotW + 2 * PHOTO_COLON_W + 7 * PHOTO_GAP;
@@ -782,7 +828,7 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
       }
       tft.setFreeFont(nullptr);
     }
-  } else if (currentFace == FACE_PHOTO || currentFace == FACE_BOTANICAL) {
+  } else if (currentFace == FACE_PHOTO || currentFace == FACE_BOTANICAL || currentFace == FACE_SILVER) {
     // Every slot's x position is fixed (see drawPhotoRow()), so there's
     // nothing to diff per-digit - just redraw the whole row when anything
     // in it changed. lastDigit[0..5] doubles as this face's HHMMSS cache

@@ -211,7 +211,7 @@ your router's client list instead). Reflash, hold OK for 3s at power-up, or
 use the on-device WiFi menu item to reconnect to a different network.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between five clock faces: the rainbow grid face; a retro LED face
+cycle between six clock faces: the rainbow grid face; a retro LED face
 (classic digital-alarm-clock style 7-segment digits, bright red on black,
 with a faint ghost of the unlit segments); [**Video**](#video-wallpaper),
 which loops a short video clip fullscreen; [**Photo**](#photo-face), a
@@ -219,13 +219,16 @@ font-sampler face - each digit *value* 0-9 is its own real photographed
 typeface and colour, not one consistent font - on a plain white
 background (several of the digits are themselves too dark to read on
 the black background every other face uses), with a matching white
-status bar; and **Botanical**, illuminated-manuscript digits - an
-orange/red letterform on its own black panel, bordered with green vines
-and small yellow flowers - on a deep vine-green background sampled from
-that same artwork, with a matching green status bar and cream text. The
-status bar re-skins to match whichever face is active (or hides
-entirely on Video). The choice isn't saved across a power cycle - it
-always starts on the rainbow grid face.
+status bar; [**Botanical**](#botanical-face), illuminated-manuscript
+digits - an orange/red letterform on its own black panel, bordered with
+green vines and small yellow flowers - on a deep vine-green background
+sampled from that same artwork, with a matching green status bar and
+cream text; and [**Silver**](#silver-face), chrome-gradient numerals with
+a soft glow on a plain black background, with a matching gunmetal status
+bar that gets the same glossy top-edge highlight as the digits
+themselves. The status bar re-skins to match whichever face is active
+(or hides entirely on Video). The choice isn't saved across a power
+cycle - it always starts on the rainbow grid face.
 
 ### Video Wallpaper
 
@@ -275,6 +278,18 @@ behind and around* the panels and the status bar, both set to a deep
 vine-green sampled straight from the digits' own leaves (`COL_BOTANICAL_BG`
 in `clock_display.cpp`), with cream badge text sampled from the source
 art's own parchment-page background.
+
+### Silver Face
+
+Chrome-gradient numerals (`SilverDigits.h`) with a soft outer glow, each
+kept on the same slice of black backdrop they were cropped with - like
+Botanical, that backdrop is kept rather than removed, which is only
+seamless because this face's own background is black too
+(`activePhotoBg()` in `clock_display.cpp`). The status bar gets a dark
+gunmetal fill (`COL_SILVER_BADGE`) rather than the usual per-face flat
+colour, plus a glossy highlight across its top edge - the same brightening
+pass (`applyDigitGloss()`) the rainbow grid face already uses on its own
+digit cells, reused here so the badges visibly "shine" like the digits do.
 
 ### Weather
 
@@ -438,7 +453,7 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   font, but a self-service option that doesn't need a TTF at all.
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
   per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`)
-  based on `currentFace` - Video, Photo and Botanical bypass this
+  based on `currentFace` - Video, Photo, Botanical and Silver bypass this
   dispatcher entirely and redraw their own whole row each tick
   (`VideoPlayer::draw()`, `drawPhotoRow()`), since none of them fit the
   fixed per-cell column grid the other two share. `ClockDisplay::nextFace()`
