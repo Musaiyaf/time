@@ -311,15 +311,13 @@ highlight, dimmer through its body, exactly like the reference render.
 To pick one: prepare a wallpaper image and copy it onto the SD card,
 then pick it on the clock.
 
-- **`tools/make_wallpaper.py`** converts any photo to the raw RGB565
-  format the clock reads:
-  ```
-  pip install Pillow
-  python3 tools/make_wallpaper.py sunset.jpg --out sunset.bin
-  ```
-  (320x140, the clock digit area only, same shape as [Custom
-  Face](#custom-face)'s `bg.bin` - centre-cropped to fill without
-  distortion by default; pass `--fit stretch` to distort-to-fit instead.)
+- **`tools/make_wallpaper.html`** — no install: open it directly in a
+  browser (double-click the file), pick a photo and a fit mode, see a
+  live preview, and click to download the `.bin`. Runs entirely
+  client-side, nothing is uploaded anywhere. Output is 320x140, the
+  clock digit area only, same shape as [Custom Face](#custom-face)'s
+  `bg.bin` - "Cover" centre-crops to fill without distortion (default),
+  "Stretch" distorts to fit exactly.
 - Copy the `.bin` file(s) into a `/wallpapers/` folder on the SD card -
   any filenames, subfolders are fine too, the picker just browses
   whatever's there.
