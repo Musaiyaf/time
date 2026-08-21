@@ -94,9 +94,11 @@ firmware uses `INPUT_PULLUP`, so no external resistor is needed):
 | OK | 0 | The BOOT button - most ESP32-S3 dev boards already have this wired, so OK usually needs no extra hardware. |
 
 LEFT/RIGHT cycle clock faces; holding OK opens the on-device settings menu
-(see [Using the clock](#using-the-clock)). Holding OK for 3 seconds right
-after power-up wipes any saved WiFi credentials, so the next boot starts
-fresh with the "no WiFi" try-again-or-Manual-Mode prompt. Change
+(see [Using the clock](#using-the-clock)). Holding LEFT instead opens the
+[Glass face's wallpaper picker](#glass-face-wallpaper). Holding OK for 3
+seconds right after power-up wipes any saved WiFi credentials, so the
+next boot starts fresh with the "no WiFi" try-again-or-Manual-Mode
+prompt. Change
 `BTN_LEFT_PIN`/`BTN_RIGHT_PIN`/`BTN_OK_PIN` in
 `firmware/ESP32_WiFi_Clock/config.h` if you wire them to different GPIOs.
 
@@ -215,11 +217,12 @@ which shows your own background image and colours from an SD card;
 font - on a plain white background (several of the digits are themselves
 too dark to read on the black background every other face uses), with a
 matching white status bar; and **Glass**, liquid-glass digits (one
-consistent icy blue-white glass look, unlike Photo's mixed styles) on
-black, with dark tinted-glass status badges. The status bar re-skins to
-match whichever face is active (or hides entirely on Video). The choice
-isn't saved across a power cycle - it always starts on the rainbow grid
-face.
+consistent icy blue-white glass look, unlike Photo's mixed styles) with
+dark tinted-glass status badges, on black by default or an [optional SD
+wallpaper image the glass shows through](#glass-face-wallpaper) (hold
+LEFT to pick one). The status bar re-skins to match whichever face is
+active (or hides entirely on Video). The choice isn't saved across a
+power cycle - it always starts on the rainbow grid face.
 
 ### Custom Face
 
@@ -296,6 +299,41 @@ invisible on the black background every other face uses - so Photo runs
 on a plain white background instead, with a matching white status bar
 (`THEME_PHOTO` in `clock_display.cpp`), rather than re-skinning to a dark
 badge palette like the other faces.
+
+### Glass Face Wallpaper
+
+The **Glass** face's liquid-glass digits keep their real per-pixel
+translucency (not just a flat cutout shape), so they can optionally sit
+over a background image instead of plain black - the glass genuinely
+shows the picture through it, brighter where the glass catches a
+highlight, dimmer through its body, exactly like the reference render.
+
+To pick one: prepare a wallpaper image and copy it onto the SD card,
+then pick it on the clock.
+
+- **`tools/make_wallpaper.py`** converts any photo to the raw RGB565
+  format the clock reads:
+  ```
+  pip install Pillow
+  python3 tools/make_wallpaper.py sunset.jpg --out sunset.bin
+  ```
+  (320x140, the clock digit area only, same shape as [Custom
+  Face](#custom-face)'s `bg.bin` - centre-cropped to fill without
+  distortion by default; pass `--fit stretch` to distort-to-fit instead.)
+- Copy the `.bin` file(s) into a `/wallpapers/` folder on the SD card -
+  any filenames, subfolders are fine too, the picker just browses
+  whatever's there.
+- On the clock, cycle (LEFT/RIGHT) to the **Glass** face, then **hold
+  LEFT** to open the wallpaper picker: LEFT/RIGHT moves the selection,
+  OK opens a folder or picks a file as the wallpaper, holding OK backs
+  out (up a folder, or out of the picker entirely from `/wallpapers`
+  itself). The choice is remembered across reboots.
+
+No SD card, or nothing ever picked, and Glass just falls back to its
+original flat black background - never a blank or broken screen. There's
+no on-device photo/JPEG decoder (same reason Custom Face's background
+works this way too), so an arbitrary phone photo can't be picked
+directly - it has to be converted to a `.bin` first.
 
 **On-device main menu:** hold OK (not a tap - hold it down) on any clock
 face to open the top-level menu: three icon tiles, **SD Card**,

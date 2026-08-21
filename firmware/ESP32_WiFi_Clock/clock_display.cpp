@@ -28,6 +28,7 @@ TFT_eSprite weekSpr(&tft);
 TFT_eSprite doySpr(&tft);
 TFT_eSprite wifiSpr(&tft);
 TFT_eSprite photoDigitSpr(&tft); // Photo face only - see drawPhotoRow()
+TFT_eSprite wallpaperSpr(&tft);  // Glass face only, when a wallpaper is set - see drawPhotoRow()
 
 // ---- Theme colours (approximating the reference photo) -------------
 const uint16_t COL_BG        = TFT_BLACK;
@@ -505,6 +506,57 @@ uint16_t activePhotoColonColor() {
   return (currentFace == FACE_GLASS) ? COL_GLASS_TEXT : TFT_BLACK;
 }
 
+// ---- Glass face wallpaper -----------------------------------------
+// An optional user-picked background image behind the glass digits,
+// loaded from the SD card (see sd_card.h) - the on-device counterpart of
+// Custom Face's bg.bin, but selectable at runtime: hold LEFT from the
+// clock face to browse /wallpapers/ and pick one (see menu.cpp's
+// runWallpaperPicker()). The choice is remembered in a tiny pointer file
+// so it survives a reboot. Entirely optional - with no card, or nothing
+// ever picked, Glass just falls back to its original flat black.
+// One level deep, not /faces/glass/... - SdCard::beginWrite() only
+// creates a single missing parent directory, and /faces may not exist at
+// all if Custom Face has never been set up.
+const char *const GLASS_WALLPAPER_CFG = "/glass_wallpaper.cfg";
+// SCR_W * CLOCK_H raw RGB565 pixels, same shape as Custom Face's
+// customBgBuf, allocated once (lazily, in PSRAM) the first time it's
+// needed and kept for the rest of the session.
+uint16_t *glassWallpaperBuf = nullptr;
+bool hasGlassWallpaper = false;
+
+void loadGlassWallpaperFromPath(const String &path) {
+  if (!glassWallpaperBuf) {
+    glassWallpaperBuf = (uint16_t *)ps_malloc((size_t)SCR_W * CLOCK_H * sizeof(uint16_t));
+  }
+  hasGlassWallpaper = glassWallpaperBuf && path.length() &&
+                       SdCard::readImage(path, glassWallpaperBuf, SCR_W, CLOCK_H);
+}
+
+// Loads whichever wallpaper path was last saved, the first time (and only
+// the first time) the Glass face is actually opened this session - same
+// "load once, keep for the session" policy as ensureCustomFaceLoaded().
+void ensureGlassWallpaperLoaded() {
+  if (currentFace != FACE_GLASS) return;
+  static bool attempted = false;
+  if (attempted) return;
+  attempted = true;
+  String path = SdCard::readTextFile(GLASS_WALLPAPER_CFG);
+  path.trim();
+  loadGlassWallpaperFromPath(path);
+}
+
+// Alpha-blends fg over bg (both RGB565), working directly in 5/6/5 space -
+// plenty of precision for a translucency effect, and avoids an 8-bit
+// round trip per channel per pixel.
+uint16_t blend565(uint16_t fg, uint16_t bg, uint8_t alpha) {
+  uint8_t fr = (fg >> 11) & 0x1F, fgn = (fg >> 5) & 0x3F, fb = fg & 0x1F;
+  uint8_t br = (bg >> 11) & 0x1F, bgn = (bg >> 5) & 0x3F, bb = bg & 0x1F;
+  uint8_t r = (uint16_t)(fr * alpha + br * (255 - alpha)) / 255;
+  uint8_t g = (uint16_t)(fgn * alpha + bgn * (255 - alpha)) / 255;
+  uint8_t b = (uint16_t)(fb * alpha + bb * (255 - alpha)) / 255;
+  return ((uint16_t)r << 11) | ((uint16_t)g << 5) | b;
+}
+
 // Scaled width of digit d (0-9) in the given set at a fixed height of
 // PHOTO_H, preserving its native aspect ratio.
 int photoScaledWidth(const PhotoDigit *set, int d) {
@@ -513,24 +565,57 @@ int photoScaledWidth(const PhotoDigit *set, int d) {
 }
 
 // Nearest-neighbour scales digit d from its native PROGMEM bitmap into
-// photoDigitSpr at (scaled width x PHOTO_H), background-filled first so
-// the unused slot width right of a narrower digit matches the face's bg.
-void drawPhotoDigitToSprite(const PhotoDigit *set, int d, uint16_t bg) {
+// photoDigitSpr at (photoSlotW x PHOTO_H) - photoSlotW rather than just
+// this digit's own scaled width, so a narrower digit's leftover slot
+// space still gets a background pixel (flat bg, or the wallpaper texture
+// at that screen position) instead of being left undrawn.
+//
+// When the active set carries per-pixel alpha (Glass, when a wallpaper is
+// set) each source pixel is blended over whatever's actually behind it -
+// the wallpaper at that exact screen position - rather than a flat
+// colour, which is what makes the glass read as translucent instead of
+// just a flat cutout shape. screenX is this slot's x on the real screen,
+// needed to look up the matching wallpaper column.
+void drawPhotoDigitToSprite(const PhotoDigit *set, int d, uint16_t bg, int screenX) {
   const PhotoDigit &pd = set[d];
   int sw = photoScaledWidth(set, d);
-  photoDigitSpr.fillSprite(bg);
+  bool useWallpaper = currentFace == FACE_GLASS && hasGlassWallpaper && pd.alpha;
+  int wallRowBase = photoRowY - CLOCK_TOP;
   for (int y = 0; y < PHOTO_H; y++) {
     int sy = (y * pd.h) / PHOTO_H;
     const uint16_t *row = pd.data + (size_t)sy * pd.w;
-    for (int x = 0; x < sw; x++) {
+    const uint8_t *arow = pd.alpha ? (pd.alpha + (size_t)sy * pd.w) : nullptr;
+    int wallY = wallRowBase + y;
+    for (int x = 0; x < photoSlotW; x++) {
+      uint16_t destColor = bg;
+      if (useWallpaper) {
+        int wallX = screenX + x;
+        if (wallX >= 0 && wallX < SCR_W && wallY >= 0 && wallY < CLOCK_H) {
+          destColor = glassWallpaperBuf[(size_t)wallY * SCR_W + wallX];
+        }
+      }
+      if (x >= sw) {
+        photoDigitSpr.drawPixel(x, y, destColor);
+        continue;
+      }
       int sx = (x * pd.w) / sw;
-      photoDigitSpr.drawPixel(x, y, pgm_read_word(&row[sx]));
+      uint16_t srcColor = pgm_read_word(&row[sx]);
+      uint16_t outColor = srcColor;
+      if (arow) {
+        uint8_t a = pgm_read_byte(&arow[sx]);
+        outColor = (a == 0) ? destColor : (a == 255 ? srcColor : blend565(srcColor, destColor, a));
+      }
+      photoDigitSpr.drawPixel(x, y, outColor);
     }
   }
 }
 
-void drawPhotoColon(int x, bool visible, uint16_t bg, uint16_t dotColor) {
-  tft.fillRect(x, photoRowY, PHOTO_COLON_W, PHOTO_H, bg);
+// skipFill: when the wallpaper's already been painted across the whole
+// row (see drawPhotoRow()), don't stomp it with a flat fillRect first -
+// just draw the dot(s) straight over it, so an off/invisible colon still
+// shows the wallpaper through its slot instead of a flat black gap.
+void drawPhotoColon(int x, bool visible, uint16_t bg, uint16_t dotColor, bool skipFill) {
+  if (!skipFill) tft.fillRect(x, photoRowY, PHOTO_COLON_W, PHOTO_H, bg);
   if (visible) {
     int cx = x + PHOTO_COLON_W / 2;
     int cy = photoRowY + PHOTO_H / 2;
@@ -539,6 +624,20 @@ void drawPhotoColon(int x, bool visible, uint16_t bg, uint16_t dotColor) {
     tft.fillSmoothCircle(cx, cy - gap, r, dotColor, bg);
     tft.fillSmoothCircle(cx, cy + gap, r, dotColor, bg);
   }
+}
+
+// Paints the cached wallpaper image across the whole clock area in one
+// pass, the same drawPixel-into-a-sprite approach as Custom Face's
+// pushCustomBgSlice() (pushImage() is proven unreliable on a raw buffer
+// this size elsewhere in this file - see its comment for the full story).
+void pushGlassWallpaper() {
+  for (int row = 0; row < CLOCK_H; row++) {
+    const uint16_t *src = glassWallpaperBuf + (size_t)row * SCR_W;
+    for (int col = 0; col < SCR_W; col++) {
+      wallpaperSpr.drawPixel(col, row, src[col]);
+    }
+  }
+  wallpaperSpr.pushSprite(0, CLOCK_TOP);
 }
 
 // Redraws the whole HH:MM:SS row in one pass - unlike the other faces'
@@ -550,16 +649,21 @@ void drawPhotoRow(const char *buf, bool colonVisible) {
   const PhotoDigit *set = activePhotoSet();
   uint16_t bg = activePhotoBg();
   uint16_t colonColor = activePhotoColonColor();
-  tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, bg);
+  bool useWallpaper = currentFace == FACE_GLASS && hasGlassWallpaper;
+  if (useWallpaper) {
+    pushGlassWallpaper();
+  } else {
+    tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, bg);
+  }
   int x = photoRowStartX;
   int idx = 0;
   for (int slot = 0; slot < 8; slot++) {
     if (slot == 2 || slot == 5) {
-      drawPhotoColon(x, colonVisible, bg, colonColor);
+      drawPhotoColon(x, colonVisible, bg, colonColor, useWallpaper);
       x += PHOTO_COLON_W + PHOTO_GAP;
     } else {
       int d = buf[idx++] - '0';
-      drawPhotoDigitToSprite(set, d, bg);
+      drawPhotoDigitToSprite(set, d, bg, x);
       photoDigitSpr.pushSprite(x, photoRowY);
       x += photoSlotW + PHOTO_GAP;
     }
@@ -771,6 +875,7 @@ void begin() {
   doySpr.setColorDepth(16);
   wifiSpr.setColorDepth(16);
   photoDigitSpr.setColorDepth(16);
+  wallpaperSpr.setColorDepth(16);
 
   digitSpr.createSprite(CELL_DIGIT_W, CLOCK_H);
   colonSpr.createSprite(CELL_COLON_W, CLOCK_H);
@@ -785,6 +890,7 @@ void begin() {
     photoSlotW = max(photoSlotW, photoScaledWidth(GLASS_DIGITS, d));
   }
   photoDigitSpr.createSprite(photoSlotW, PHOTO_H);
+  wallpaperSpr.createSprite(SCR_W, CLOCK_H);
   int photoRowW = 6 * photoSlotW + 2 * PHOTO_COLON_W + 7 * PHOTO_GAP;
   photoRowStartX = max(0, (SCR_W - photoRowW) / 2);
   photoRowY = CLOCK_TOP + (CLOCK_H - PHOTO_H) / 2;
@@ -809,6 +915,7 @@ void nextFace() {
   ensureCustomFaceLoaded(); // must run before ensureDigitFont() - it's what sets customCfg.fontId
   ensureDigitFont();
   ensureVideoFaceEntered();
+  ensureGlassWallpaperLoaded();
   gridDrawn = false;
 }
 
@@ -817,11 +924,25 @@ void prevFace() {
   ensureCustomFaceLoaded(); // must run before ensureDigitFont() - it's what sets customCfg.fontId
   ensureDigitFont();
   ensureVideoFaceEntered();
+  ensureGlassWallpaperLoaded();
   gridDrawn = false;
 }
 
 void forceFullRedraw() {
   gridDrawn = false;
+}
+
+// Called from the on-device wallpaper picker (menu.cpp's
+// runWallpaperPicker(), opened by holding LEFT from the clock face) once
+// the user picks a file under /wallpapers/. Loads it immediately, saves
+// the choice so it survives a reboot, and repaints.
+void setGlassWallpaper(const String &path) {
+  loadGlassWallpaperFromPath(path);
+  if (SdCard::beginWrite(GLASS_WALLPAPER_CFG)) {
+    SdCard::writeChunk((const uint8_t *)path.c_str(), path.length());
+    SdCard::endWrite();
+  }
+  forceFullRedraw();
 }
 
 TFT_eSPI &rawDisplay() {

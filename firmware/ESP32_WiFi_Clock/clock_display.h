@@ -23,6 +23,13 @@ void prevFace();
 // cleanly on top of it instead of leaving stale menu pixels behind.
 void forceFullRedraw();
 
+// Sets the Glass face's background wallpaper to the raw RGB565 image at
+// path (a 320x140 file on the SD card, same shape/format as Custom
+// Face's bg.bin - see tools/make_wallpaper.py). Loads it immediately and
+// remembers the choice across reboots. Called by the on-device wallpaper
+// picker (hold LEFT from the clock face - see menu.cpp).
+void setGlassWallpaper(const String &path);
+
 // The single shared TFT_eSPI instance, already init()'d and rotated - for
 // other modules (like the on-device settings menu) that need to draw their
 // own screens on top of / instead of the clock face, without creating a
