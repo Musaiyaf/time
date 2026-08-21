@@ -624,84 +624,6 @@ void runSdBrowser() {
   }
 }
 
-// ---- Glass face wallpaper picker ---------------------------------------
-// Opened by holding LEFT from the clock face (a separate gesture from
-// LEFT's usual tap-to-cycle-faces, and from OK's hold-for-main-menu).
-// Same read-only, drill-into-directories browsing as runSdBrowser() above,
-// scoped to /wallpapers instead of the whole card, except picking a file
-// here sets it as the Glass face's background (ClockDisplay::
-// setGlassWallpaper()) and returns straight to the clock instead of
-// showing a file-info screen. The files themselves are prepared offline
-// with tools/make_wallpaper.py (raw RGB565, same shape as Custom Face's
-// bg.bin) and copied onto the card by hand - this firmware has no on-
-// device JPEG/PNG decoder to load an arbitrary photo directly.
-void runWallpaperPicker() {
-  if (!SdCard::isPresent()) {
-    drawScreen("WALLPAPER", COL_WARN, COL_BG, "No SD card found", COL_WARN, "", "tap OK to go back");
-    blockForOk();
-    return;
-  }
-
-  const String ROOT = "/wallpapers";
-  String path = ROOT;
-  static SdCard::Entry entries[SD_MAX_ENTRIES];
-  int count = 0;
-  int idx = 0;
-  bool dirtyLocal = true;
-  bool needReload = true;
-  bool rootMissing = false;
-
-  while (true) {
-    if (needReload) {
-      count = SdCard::listDir(path, entries, SD_MAX_ENTRIES);
-      rootMissing = (path == ROOT && count == 0 && !SdCard::exists(ROOT));
-      idx = 0;
-      needReload = false;
-      dirtyLocal = true;
-    }
-
-    if (rootMissing) {
-      drawScreen("WALLPAPER", COL_WARN, COL_BG, "No /wallpapers folder", COL_WARN,
-                 "on the SD card", "tap OK to go back");
-      blockForOk();
-      return;
-    }
-
-    bool lt, ll, rt, rl, ot, ol;
-    btnLeft.poll(lt, ll);
-    btnRight.poll(rt, rl);
-    btnOk.poll(ot, ol);
-
-    if (count > 0) {
-      if (lt) { idx = (idx + count - 1) % count; dirtyLocal = true; }
-      if (rt) { idx = (idx + 1) % count; dirtyLocal = true; }
-    }
-
-    if (ol) {
-      if (path == ROOT) return; // back out of the picker entirely
-      path = sdParentPath(path);
-      needReload = true;
-      continue;
-    }
-
-    if (ot && count > 0) {
-      if (entries[idx].isDir) {
-        path = sdChildPath(path, entries[idx].name);
-        needReload = true;
-        continue;
-      }
-      ClockDisplay::setGlassWallpaper(sdChildPath(path, entries[idx].name));
-      return;
-    }
-
-    if (dirtyLocal) {
-      drawSdList(path, entries, count, idx, "< > move   OK set wallpaper   hold back");
-      dirtyLocal = false;
-    }
-    delay(5);
-  }
-}
-
 } // namespace
 
 namespace Menu {
@@ -809,7 +731,6 @@ bool handle() {
     case ST_CLOCK:
       if (leftTap) ClockDisplay::prevFace();
       if (rightTap) ClockDisplay::nextFace();
-      if (leftLong) { runWallpaperPicker(); ClockDisplay::forceFullRedraw(); }
       if (okLong) enterMain();
       break;
 

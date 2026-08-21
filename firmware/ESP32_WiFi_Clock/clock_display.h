@@ -11,9 +11,8 @@ namespace ClockDisplay {
 void begin();
 
 // Switches to the next/previous clock face (rainbow grid -> retro LED
-// display -> Custom -> Video -> Photo -> Glass -> back to rainbow grid,
-// or the reverse). Call from a button tap; takes effect on the next
-// update() call.
+// display -> Custom -> Video -> Photo -> back to rainbow grid, or the
+// reverse). Call from a button tap; takes effect on the next update() call.
 void nextFace();
 void prevFace();
 
@@ -22,13 +21,6 @@ void prevFace();
 // something else over the screen (like a menu) so the clock face redraws
 // cleanly on top of it instead of leaving stale menu pixels behind.
 void forceFullRedraw();
-
-// Sets the Glass face's background wallpaper to the raw RGB565 image at
-// path (a 320x140 file on the SD card, same shape/format as Custom
-// Face's bg.bin - see tools/make_wallpaper.py). Loads it immediately and
-// remembers the choice across reboots. Called by the on-device wallpaper
-// picker (hold LEFT from the clock face - see menu.cpp).
-void setGlassWallpaper(const String &path);
 
 // The single shared TFT_eSPI instance, already init()'d and rotated - for
 // other modules (like the on-device settings menu) that need to draw their

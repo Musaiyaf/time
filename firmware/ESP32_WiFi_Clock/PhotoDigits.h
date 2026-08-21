@@ -1,6 +1,5 @@
 #pragma once
 #include <Arduino.h>
-#include "PhotoDigitTypes.h"
 
 // Photo-traced mixed-style digits (0-9), one distinct font/color per
 // digit value, background removed and re-composited onto white (this set
@@ -1708,15 +1707,20 @@ const uint16_t img_9[] PROGMEM = {
 const int img_9_width  = 109;
 const int img_9_height = 167;
 
+struct PhotoDigit {
+  const uint16_t *data;
+  uint8_t w, h;
+};
+
 const PhotoDigit PHOTO_DIGITS[10] = {
-  {img_0, nullptr, img_0_width, img_0_height},
-  {img_1, nullptr, img_1_width, img_1_height},
-  {img_2, nullptr, img_2_width, img_2_height},
-  {img_3, nullptr, img_3_width, img_3_height},
-  {img_4, nullptr, img_4_width, img_4_height},
-  {img_5, nullptr, img_5_width, img_5_height},
-  {img_6, nullptr, img_6_width, img_6_height},
-  {img_7, nullptr, img_7_width, img_7_height},
-  {img_8, nullptr, img_8_width, img_8_height},
-  {img_9, nullptr, img_9_width, img_9_height},
+  {img_0, img_0_width, img_0_height},
+  {img_1, img_1_width, img_1_height},
+  {img_2, img_2_width, img_2_height},
+  {img_3, img_3_width, img_3_height},
+  {img_4, img_4_width, img_4_height},
+  {img_5, img_5_width, img_5_height},
+  {img_6, img_6_width, img_6_height},
+  {img_7, img_7_width, img_7_height},
+  {img_8, img_8_width, img_8_height},
+  {img_9, img_9_width, img_9_height},
 };

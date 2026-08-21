@@ -3,7 +3,6 @@
 #include "sd_card.h"
 #include "video_player.h"
 #include "PhotoDigits.h"
-#include "GlassDigits.h"
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
 #include "BebasDigits123.h"
@@ -28,7 +27,6 @@ TFT_eSprite weekSpr(&tft);
 TFT_eSprite doySpr(&tft);
 TFT_eSprite wifiSpr(&tft);
 TFT_eSprite photoDigitSpr(&tft); // Photo face only - see drawPhotoRow()
-TFT_eSprite wallpaperSpr(&tft);  // Glass face only, when a wallpaper is set - see drawPhotoRow()
 
 // ---- Theme colours (approximating the reference photo) -------------
 const uint16_t COL_BG        = TFT_BLACK;
@@ -100,21 +98,6 @@ const BadgeTheme THEME_PHOTO = {
   TFT_WHITE, TFT_BLACK,   // wifi
 };
 
-// Glass face: dark, near-black badges (echoing the tinted-glass-on-black
-// look of the reference art this face's digits came from) with icy
-// blue-white text, rather than a solid opaque colour - the closest this
-// firmware's flat-fill badge pills can get to a translucent glass look
-// without real alpha blending.
-const uint16_t COL_GLASS_TEXT = tft.color565(200, 225, 245);
-const BadgeTheme THEME_GLASS = {
-  tft.color565(14, 18, 26), COL_GLASS_TEXT,   // year
-  tft.color565(14, 18, 26), COL_GLASS_TEXT,   // month
-  tft.color565(10, 13, 19), COL_GLASS_TEXT,   // day
-  tft.color565(14, 18, 26), COL_GLASS_TEXT,   // week
-  tft.color565(14, 18, 26), COL_GLASS_TEXT,   // day-of-year
-  tft.color565(10, 13, 19), COL_GLASS_TEXT,   // wifi
-};
-
 // ---- Layout -----------------------------------------------------------
 const int SCR_W = TFT_SCREEN_WIDTH;
 const int SCR_H = TFT_SCREEN_HEIGHT;
@@ -175,8 +158,7 @@ enum ClockFaceId {
   FACE_CUSTOM = 2,
   FACE_VIDEO = 3,
   FACE_PHOTO = 4,
-  FACE_GLASS = 5,
-  FACE_COUNT = 6
+  FACE_COUNT = 5
 };
 int currentFace = FACE_RAINBOW_GRID;
 
@@ -256,7 +238,6 @@ void ensureCustomFaceLoaded() {
 const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
   if (currentFace == FACE_PHOTO) return THEME_PHOTO;
-  if (currentFace == FACE_GLASS) return THEME_GLASS;
   if (currentFace == FACE_CUSTOM) {
     static BadgeTheme customTheme;
     uint16_t bg = tft.color565(10, 10, 14);
@@ -460,22 +441,19 @@ void ensureDigitFont() {
   loadedFont = needed;
 }
 
-// ---- Photo faces ------------------------------------------------------
-// Two faces built from real photographed/rendered digits (background
-// removed, RGB565), not a font: Photo (PhotoDigits.h, a font-sampler
-// style - a different typeface/colour per digit value, several of them
-// dark, so it needs a light background or half of them are near-
-// invisible) and Glass (GlassDigits.h, one consistent icy liquid-glass
-// look that reads fine on black like every other face). Each digit has a
-// different native size, so unlike every other face these can't reuse
-// the fixed CELL_DIGIT_W column grid: laid out edge to edge at their
-// native aspect ratio, a full row would run well past this 320px screen.
-// Every digit is instead scaled to a single fixed-width slot (photoSlotW,
-// computed below as the widest digit across BOTH sets at PHOTO_H tall,
-// so one shared size/layout serves either face) so the whole row's width
-// - and thus its centred x position - never changes between redraws;
-// without that, the row would visibly jump sideways every second as
-// narrower/wider digits rotated through.
+// ---- Photo face ---------------------------------------------------------
+// Built from real photographed digits (background removed, RGB565), not a
+// font: a font-sampler style - a different typeface/colour per digit
+// value, several of them dark, so it needs a light background or half of
+// them are near-invisible. Each digit has a different native size, so
+// unlike every other face this can't reuse the fixed CELL_DIGIT_W column
+// grid: laid out edge to edge at their native aspect ratio, a full row
+// would run well past this 320px screen. Every digit is instead scaled to
+// a single fixed-width slot (photoSlotW, computed below as the widest
+// digit at PHOTO_H tall) so the whole row's width - and thus its centred
+// x position - never changes between redraws; without that, the row would
+// visibly jump sideways every second as narrower/wider digits rotated
+// through.
 //
 // Shows all 6 digits (HH:MM:SS). At a fixed size that must never clip on
 // any possible time, that caps PHOTO_H well below the cell height (140px)
@@ -483,139 +461,44 @@ void ensureDigitFont() {
 // gaps/colon widths get (tried several combinations; none clear ~59px).
 const int PHOTO_GAP = 1;       // gap between adjacent digit/colon slots
 const int PHOTO_COLON_W = 7;
-// Widest native digit across both sets (Photo's "8", 141x165) sets the
-// worst-case aspect ratio (~0.855). At H=57, 6 slots * ceil(0.855*57)=49 +
-// 2*7 (colons) + 7*1 (gaps) = 294 + 14 + 7 = 315px, safely under SCR_W (320).
+// Widest native digit ("8", 141x165) sets the worst-case aspect ratio
+// (~0.855). At H=57, 6 slots * ceil(0.855*57)=49 + 2*7 (colons) + 7*1
+// (gaps) = 294 + 14 + 7 = 315px, safely under SCR_W (320).
 const int PHOTO_H = 57;
-int photoSlotW = 0;       // widest scaled digit (either set) - set in begin()
+int photoSlotW = 0;       // widest scaled digit - set in begin()
 int photoRowStartX = 0;   // fixed row x so it never shifts between redraws
 int photoRowY = 0;
 
-// Which digit set/background/colon colour the current face uses. Photo's
-// mixed set includes several dark digits (black/dark-brown/dark-navy)
-// that would be near-invisible on black, so it gets a white background
-// and dark colon dots; Glass's uniformly icy-blue-on-black look reads
-// fine on black like every other face.
-const PhotoDigit *activePhotoSet() {
-  return (currentFace == FACE_GLASS) ? GLASS_DIGITS : PHOTO_DIGITS;
-}
-uint16_t activePhotoBg() {
-  return (currentFace == FACE_GLASS) ? COL_BG : TFT_WHITE;
-}
-uint16_t activePhotoColonColor() {
-  return (currentFace == FACE_GLASS) ? COL_GLASS_TEXT : TFT_BLACK;
-}
-
-// ---- Glass face wallpaper -----------------------------------------
-// An optional user-picked background image behind the glass digits,
-// loaded from the SD card (see sd_card.h) - the on-device counterpart of
-// Custom Face's bg.bin, but selectable at runtime: hold LEFT from the
-// clock face to browse /wallpapers/ and pick one (see menu.cpp's
-// runWallpaperPicker()). The choice is remembered in a tiny pointer file
-// so it survives a reboot. Entirely optional - with no card, or nothing
-// ever picked, Glass just falls back to its original flat black.
-// One level deep, not /faces/glass/... - SdCard::beginWrite() only
-// creates a single missing parent directory, and /faces may not exist at
-// all if Custom Face has never been set up.
-const char *const GLASS_WALLPAPER_CFG = "/glass_wallpaper.cfg";
-// SCR_W * CLOCK_H raw RGB565 pixels, same shape as Custom Face's
-// customBgBuf, allocated once (lazily, in PSRAM) the first time it's
-// needed and kept for the rest of the session.
-uint16_t *glassWallpaperBuf = nullptr;
-bool hasGlassWallpaper = false;
-
-void loadGlassWallpaperFromPath(const String &path) {
-  if (!glassWallpaperBuf) {
-    glassWallpaperBuf = (uint16_t *)ps_malloc((size_t)SCR_W * CLOCK_H * sizeof(uint16_t));
-  }
-  hasGlassWallpaper = glassWallpaperBuf && path.length() &&
-                       SdCard::readImage(path, glassWallpaperBuf, SCR_W, CLOCK_H);
-}
-
-// Loads whichever wallpaper path was last saved, the first time (and only
-// the first time) the Glass face is actually opened this session - same
-// "load once, keep for the session" policy as ensureCustomFaceLoaded().
-void ensureGlassWallpaperLoaded() {
-  if (currentFace != FACE_GLASS) return;
-  static bool attempted = false;
-  if (attempted) return;
-  attempted = true;
-  String path = SdCard::readTextFile(GLASS_WALLPAPER_CFG);
-  path.trim();
-  loadGlassWallpaperFromPath(path);
-}
-
-// Alpha-blends fg over bg (both RGB565), working directly in 5/6/5 space -
-// plenty of precision for a translucency effect, and avoids an 8-bit
-// round trip per channel per pixel.
-uint16_t blend565(uint16_t fg, uint16_t bg, uint8_t alpha) {
-  uint8_t fr = (fg >> 11) & 0x1F, fgn = (fg >> 5) & 0x3F, fb = fg & 0x1F;
-  uint8_t br = (bg >> 11) & 0x1F, bgn = (bg >> 5) & 0x3F, bb = bg & 0x1F;
-  uint8_t r = (uint16_t)(fr * alpha + br * (255 - alpha)) / 255;
-  uint8_t g = (uint16_t)(fgn * alpha + bgn * (255 - alpha)) / 255;
-  uint8_t b = (uint16_t)(fb * alpha + bb * (255 - alpha)) / 255;
-  return ((uint16_t)r << 11) | ((uint16_t)g << 5) | b;
-}
-
-// Scaled width of digit d (0-9) in the given set at a fixed height of
-// PHOTO_H, preserving its native aspect ratio.
-int photoScaledWidth(const PhotoDigit *set, int d) {
-  const PhotoDigit &pd = set[d];
+// Scaled width of digit d (0-9) at a fixed height of PHOTO_H, preserving
+// its native aspect ratio.
+int photoScaledWidth(int d) {
+  const PhotoDigit &pd = PHOTO_DIGITS[d];
   return (pd.w * PHOTO_H + pd.h - 1) / pd.h; // ceil
 }
 
 // Nearest-neighbour scales digit d from its native PROGMEM bitmap into
 // photoDigitSpr at (photoSlotW x PHOTO_H) - photoSlotW rather than just
 // this digit's own scaled width, so a narrower digit's leftover slot
-// space still gets a background pixel (flat bg, or the wallpaper texture
-// at that screen position) instead of being left undrawn.
-//
-// When the active set carries per-pixel alpha (Glass, when a wallpaper is
-// set) each source pixel is blended over whatever's actually behind it -
-// the wallpaper at that exact screen position - rather than a flat
-// colour, which is what makes the glass read as translucent instead of
-// just a flat cutout shape. screenX is this slot's x on the real screen,
-// needed to look up the matching wallpaper column.
-void drawPhotoDigitToSprite(const PhotoDigit *set, int d, uint16_t bg, int screenX) {
-  const PhotoDigit &pd = set[d];
-  int sw = photoScaledWidth(set, d);
-  bool useWallpaper = currentFace == FACE_GLASS && hasGlassWallpaper && pd.alpha;
-  int wallRowBase = photoRowY - CLOCK_TOP;
+// space still gets a background pixel instead of being left undrawn.
+void drawPhotoDigitToSprite(int d, uint16_t bg) {
+  const PhotoDigit &pd = PHOTO_DIGITS[d];
+  int sw = photoScaledWidth(d);
   for (int y = 0; y < PHOTO_H; y++) {
     int sy = (y * pd.h) / PHOTO_H;
     const uint16_t *row = pd.data + (size_t)sy * pd.w;
-    const uint8_t *arow = pd.alpha ? (pd.alpha + (size_t)sy * pd.w) : nullptr;
-    int wallY = wallRowBase + y;
     for (int x = 0; x < photoSlotW; x++) {
-      uint16_t destColor = bg;
-      if (useWallpaper) {
-        int wallX = screenX + x;
-        if (wallX >= 0 && wallX < SCR_W && wallY >= 0 && wallY < CLOCK_H) {
-          destColor = glassWallpaperBuf[(size_t)wallY * SCR_W + wallX];
-        }
-      }
       if (x >= sw) {
-        photoDigitSpr.drawPixel(x, y, destColor);
+        photoDigitSpr.drawPixel(x, y, bg);
         continue;
       }
       int sx = (x * pd.w) / sw;
-      uint16_t srcColor = pgm_read_word(&row[sx]);
-      uint16_t outColor = srcColor;
-      if (arow) {
-        uint8_t a = pgm_read_byte(&arow[sx]);
-        outColor = (a == 0) ? destColor : (a == 255 ? srcColor : blend565(srcColor, destColor, a));
-      }
-      photoDigitSpr.drawPixel(x, y, outColor);
+      photoDigitSpr.drawPixel(x, y, pgm_read_word(&row[sx]));
     }
   }
 }
 
-// skipFill: when the wallpaper's already been painted across the whole
-// row (see drawPhotoRow()), don't stomp it with a flat fillRect first -
-// just draw the dot(s) straight over it, so an off/invisible colon still
-// shows the wallpaper through its slot instead of a flat black gap.
-void drawPhotoColon(int x, bool visible, uint16_t bg, uint16_t dotColor, bool skipFill) {
-  if (!skipFill) tft.fillRect(x, photoRowY, PHOTO_COLON_W, PHOTO_H, bg);
+void drawPhotoColon(int x, bool visible, uint16_t bg, uint16_t dotColor) {
+  tft.fillRect(x, photoRowY, PHOTO_COLON_W, PHOTO_H, bg);
   if (visible) {
     int cx = x + PHOTO_COLON_W / 2;
     int cy = photoRowY + PHOTO_H / 2;
@@ -626,44 +509,24 @@ void drawPhotoColon(int x, bool visible, uint16_t bg, uint16_t dotColor, bool sk
   }
 }
 
-// Paints the cached wallpaper image across the whole clock area in one
-// pass, the same drawPixel-into-a-sprite approach as Custom Face's
-// pushCustomBgSlice() (pushImage() is proven unreliable on a raw buffer
-// this size elsewhere in this file - see its comment for the full story).
-void pushGlassWallpaper() {
-  for (int row = 0; row < CLOCK_H; row++) {
-    const uint16_t *src = glassWallpaperBuf + (size_t)row * SCR_W;
-    for (int col = 0; col < SCR_W; col++) {
-      wallpaperSpr.drawPixel(col, row, src[col]);
-    }
-  }
-  wallpaperSpr.pushSprite(0, CLOCK_TOP);
-}
-
 // Redraws the whole HH:MM:SS row in one pass - unlike the other faces'
 // per-cell diffing, every slot's x position depends on the fixed
 // photoSlotW rather than that slot's own content, so there's nothing
 // meaningful to diff per-digit; this just runs whenever any digit or the
 // colon blink state changes (see update()).
 void drawPhotoRow(const char *buf, bool colonVisible) {
-  const PhotoDigit *set = activePhotoSet();
-  uint16_t bg = activePhotoBg();
-  uint16_t colonColor = activePhotoColonColor();
-  bool useWallpaper = currentFace == FACE_GLASS && hasGlassWallpaper;
-  if (useWallpaper) {
-    pushGlassWallpaper();
-  } else {
-    tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, bg);
-  }
+  uint16_t bg = TFT_WHITE;
+  uint16_t colonColor = TFT_BLACK;
+  tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, bg);
   int x = photoRowStartX;
   int idx = 0;
   for (int slot = 0; slot < 8; slot++) {
     if (slot == 2 || slot == 5) {
-      drawPhotoColon(x, colonVisible, bg, colonColor, useWallpaper);
+      drawPhotoColon(x, colonVisible, bg, colonColor);
       x += PHOTO_COLON_W + PHOTO_GAP;
     } else {
       int d = buf[idx++] - '0';
-      drawPhotoDigitToSprite(set, d, bg, x);
+      drawPhotoDigitToSprite(d, bg);
       photoDigitSpr.pushSprite(x, photoRowY);
       x += photoSlotW + PHOTO_GAP;
     }
@@ -875,7 +738,6 @@ void begin() {
   doySpr.setColorDepth(16);
   wifiSpr.setColorDepth(16);
   photoDigitSpr.setColorDepth(16);
-  wallpaperSpr.setColorDepth(16);
 
   digitSpr.createSprite(CELL_DIGIT_W, CLOCK_H);
   colonSpr.createSprite(CELL_COLON_W, CLOCK_H);
@@ -886,11 +748,9 @@ void begin() {
   wifiSpr.createSprite(B_WIFI.w, TOPBAR_H);
 
   for (int d = 0; d <= 9; d++) {
-    photoSlotW = max(photoSlotW, photoScaledWidth(PHOTO_DIGITS, d));
-    photoSlotW = max(photoSlotW, photoScaledWidth(GLASS_DIGITS, d));
+    photoSlotW = max(photoSlotW, photoScaledWidth(d));
   }
   photoDigitSpr.createSprite(photoSlotW, PHOTO_H);
-  wallpaperSpr.createSprite(SCR_W, CLOCK_H);
   int photoRowW = 6 * photoSlotW + 2 * PHOTO_COLON_W + 7 * PHOTO_GAP;
   photoRowStartX = max(0, (SCR_W - photoRowW) / 2);
   photoRowY = CLOCK_TOP + (CLOCK_H - PHOTO_H) / 2;
@@ -915,7 +775,6 @@ void nextFace() {
   ensureCustomFaceLoaded(); // must run before ensureDigitFont() - it's what sets customCfg.fontId
   ensureDigitFont();
   ensureVideoFaceEntered();
-  ensureGlassWallpaperLoaded();
   gridDrawn = false;
 }
 
@@ -924,25 +783,11 @@ void prevFace() {
   ensureCustomFaceLoaded(); // must run before ensureDigitFont() - it's what sets customCfg.fontId
   ensureDigitFont();
   ensureVideoFaceEntered();
-  ensureGlassWallpaperLoaded();
   gridDrawn = false;
 }
 
 void forceFullRedraw() {
   gridDrawn = false;
-}
-
-// Called from the on-device wallpaper picker (menu.cpp's
-// runWallpaperPicker(), opened by holding LEFT from the clock face) once
-// the user picks a file under /wallpapers/. Loads it immediately, saves
-// the choice so it survives a reboot, and repaints.
-void setGlassWallpaper(const String &path) {
-  loadGlassWallpaperFromPath(path);
-  if (SdCard::beginWrite(GLASS_WALLPAPER_CFG)) {
-    SdCard::writeChunk((const uint8_t *)path.c_str(), path.length());
-    SdCard::endWrite();
-  }
-  forceFullRedraw();
 }
 
 TFT_eSPI &rawDisplay() {
@@ -1037,7 +882,7 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
       }
       tft.setFreeFont(nullptr);
     }
-  } else if (currentFace == FACE_PHOTO || currentFace == FACE_GLASS) {
+  } else if (currentFace == FACE_PHOTO) {
     // Every slot's x position is fixed (see drawPhotoRow()), so there's
     // nothing to diff per-digit - just redraw the whole row when anything
     // in it changed. lastDigit[0..5] doubles as this face's HHMMSS cache
