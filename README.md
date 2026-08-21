@@ -256,7 +256,7 @@ a soft glow on a plain black background, with a matching gunmetal status
 bar that gets the same glossy top-edge highlight as the digits
 themselves; and [**Flip Clock**](#flip-clock-face), a split-flap
 "departure board" face where each digit is an actual two-part card that
-flips to its next value, on a slate-grey page matching the status bar.
+flips to its next value, on a near-black page matching the status bar.
 The status bar re-skins to match whichever face is active (or hides
 entirely on Video). The choice isn't saved across a power cycle - it
 always starts on the rainbow grid face.
@@ -324,19 +324,23 @@ digit cells, reused here so the badges visibly "shine" like the digits do.
 
 ### Flip Clock Face
 
-A split-flap "departure board" face: each digit is a two-part card (a
-light face on a slate-grey page, matching the status bar to that same
-page colour) with a hinge line through the middle, and changing to its
-next value is an actual flip rather than the instant swap most faces
-use. There's no true 3D rotation on a 2D panel, so it's approximated the
-way most software recreations do it - a vertical crop anchored at the
-hinge rather than a perspective squish - in two phases
-(`drawFlipDigitCellAnimated()` in `clock_display.cpp`): the old top half
-collapses down into the hinge, uncovering the new digit's top half
-underneath as it shrinks; then a new bottom half grows back out of the
-hinge, covering the old digit's bottom half as it expands. Reuses the
-same digit font as the rainbow grid face - no extra flash cost - and the
-same per-cell grid every face but Photo/Botanical/Silver already shares.
+A split-flap "departure board" face: each digit is a two-part dark card
+(matching the status bar to that same near-black page colour) with a
+hinge line - and two small pin dots at its ends - through the middle,
+white digits, and changing to its next value is an actual flip rather
+than the instant swap most faces use. There's no true 3D rotation on a
+2D panel, so it's approximated the way most software recreations do it -
+a vertical crop anchored at the hinge rather than a perspective squish -
+in two phases (`drawFlipDigitCellAnimated()` in `clock_display.cpp`):
+the old top half collapses down into the hinge, uncovering the new
+digit's top half underneath as it shrinks; then a new bottom half grows
+back out of the hinge, covering the old digit's bottom half as it
+expands. The flap itself tints from white towards a mid-grey as it
+nears the hinge and back to white as it swings out, standing in for the
+shading a real flap picks up edge-on - without it, the crop alone read
+as too flat next to a real split-flap board. Reuses the same digit font
+as the rainbow grid face - no extra flash cost - and the same per-cell
+grid every face but Photo/Botanical/Silver already shares.
 
 ### Weather
 

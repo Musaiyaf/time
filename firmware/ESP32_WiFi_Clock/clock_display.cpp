@@ -135,14 +135,18 @@ const BadgeTheme THEME_SILVER = {
   COL_SILVER_BADGE, COL_SILVER_TEXT,   // wifi
 };
 
-// Flip Clock face: split-flap "departure board" cards - a light card face
-// on a slate-grey page, matching the badges to that same page colour (the
-// same "background matches the badges" pattern Botanical's green and
-// Photo's white already use, just with a darker page than either).
-const uint16_t COL_FLIP_BG    = tft.color565(58, 61, 68);   // page behind the cards
-const uint16_t COL_FLIP_CARD  = tft.color565(235, 236, 240); // card face
-const uint16_t COL_FLIP_TEXT  = tft.color565(30, 32, 38);    // digit ink
-const uint16_t COL_FLIP_HINGE = tft.color565(150, 153, 160); // fold shadow line
+// Flip Clock face: split-flap "departure board" cards - dark charcoal
+// cards on a near-black page, bright white digits, matching a real split-
+// flap board (and this codebase's own repeated preference for a dark
+// backdrop with bright numerals - Silver, Rainbow, LED all do the same).
+// Badges match the page colour, same "background matches the badges"
+// pattern Botanical's green and Photo's white already use.
+const uint16_t COL_FLIP_BG     = tft.color565(15, 15, 17);   // page behind the cards
+const uint16_t COL_FLIP_CARD   = tft.color565(35, 36, 40);   // card face
+const uint16_t COL_FLIP_TEXT   = TFT_WHITE;                  // digit ink, at rest
+const uint16_t COL_FLIP_SHADOW = tft.color565(90, 92, 98);   // flap tint near edge-on
+const uint16_t COL_FLIP_HINGE  = tft.color565(120, 123, 130); // seam highlight line
+const uint16_t COL_FLIP_PIN    = tft.color565(150, 153, 160); // hinge pin dots
 const uint16_t COL_FLIP_BADGE_TXT = tft.color565(225, 227, 232);
 const BadgeTheme THEME_FLIP = {
   COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // year
@@ -395,12 +399,12 @@ void drawRainbowGridDigitCellAnimated(int col, char fromCh, char toCh, float pro
 }
 
 // ---- Flip Clock face -----------------------------------------------------
-// A split-flap "departure board" card per digit: a light card face split
-// in two by a hinge line, on the slate-grey page. There's no true 3D
-// rotation on a 2D panel, so the flip is approximated the way most
-// software recreations do it - a vertical crop rather than a true
-// perspective squish - but anchored at the hinge so it still reads as a
-// card folding there rather than a curtain closing:
+// A split-flap "departure board" card per digit: a dark card face split in
+// two by a hinge line, on a near-black page. There's no true 3D rotation
+// on a 2D panel, so the flip is approximated the way most software
+// recreations do it - a vertical crop rather than a true perspective
+// squish - but anchored at the hinge so it still reads as a card folding
+// there rather than a curtain closing:
 //   - the TOP half's background is always the settling-in NEW digit
 //     (like the real board's fixed upper leaf, already updated);
 //   - the BOTTOM half's background is always the outgoing OLD digit
@@ -409,25 +413,37 @@ void drawRainbowGridDigitCellAnimated(int col, char fromCh, char toCh, float pro
 //     time: phase 1 (0-50%) collapses the OLD top half down into the
 //     hinge, uncovering the new top background as it shrinks; phase 2
 //     (50-100%) grows a NEW bottom half back out of the hinge, covering
-//     the old bottom background as it expands.
+//     the old bottom background as it expands. The flap's own colour
+//     tints from white towards COL_FLIP_SHADOW as it nears the hinge -
+//     standing in for the edge-on, side-lit look a real flap gets
+//     mid-rotation, since a flat crop with no shading at all read as
+//     too flat/mechanical next to a real split-flap board's photos.
 // Horizontal clipping is left at the full cell width (proven safe for
 // this font - see the CELL_DIGIT_W comment above) even though the card
 // itself is drawn narrower, so the widest glyphs never get clipped.
 const int FLIP_MARGIN_X = 2; // gap between adjacent digit cards
 const int FLIP_MARGIN_Y = 3; // gap above/below each card within its cell
+const int FLIP_PIN_R = 1;    // hinge pin dot radius
+
+void drawFlipHingePins(int cardX, int cardW, int hingeY) {
+  digitSpr.fillCircle(cardX + 1, hingeY, FLIP_PIN_R, COL_FLIP_PIN);
+  digitSpr.fillCircle(cardX + cardW - 2, hingeY, FLIP_PIN_R, COL_FLIP_PIN);
+}
 
 void drawFlipDigitCell(int col, char ch) {
   int x = colX(col);
   int cardX = FLIP_MARGIN_X, cardY = FLIP_MARGIN_Y;
   int cardW = CELL_DIGIT_W - 2 * FLIP_MARGIN_X;
   int cardH = CLOCK_H - 2 * FLIP_MARGIN_Y;
+  int hingeY = cardY + cardH / 2;
 
   digitSpr.fillSprite(COL_FLIP_BG);
   digitSpr.fillRoundRect(cardX, cardY, cardW, cardH, 4, COL_FLIP_CARD);
   digitSpr.setTextDatum(MC_DATUM);
   digitSpr.setTextColor(COL_FLIP_TEXT, COL_FLIP_CARD);
-  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, cardY + cardH / 2);
-  digitSpr.fillRect(cardX, cardY + cardH / 2 - 1, cardW, 2, COL_FLIP_HINGE);
+  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, hingeY);
+  digitSpr.fillRect(cardX, hingeY - 1, cardW, 2, COL_FLIP_HINGE);
+  drawFlipHingePins(cardX, cardW, hingeY);
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
@@ -461,6 +477,10 @@ void drawFlipDigitCellAnimated(int col, char fromCh, char toCh, float progress) 
   if (phase1) {
     int flapH = (int)roundf(halfH * (1.0f - p));
     if (flapH > 0) {
+      // Shrinking towards the hinge - the smaller it gets, the more it
+      // reads as edge-on, so tint it further towards shadow as flapH
+      // drops (p towards 1, i.e. the same fraction the height shrank by).
+      digitSpr.setTextColor(blend565(COL_FLIP_TEXT, COL_FLIP_SHADOW, p), COL_FLIP_CARD);
       digitSpr.setViewport(0, hingeY - flapH, CELL_DIGIT_W, flapH);
       digitSpr.drawString(String(fromCh), CELL_DIGIT_W / 2, textCy);
       digitSpr.resetViewport();
@@ -468,6 +488,9 @@ void drawFlipDigitCellAnimated(int col, char fromCh, char toCh, float progress) 
   } else {
     int flapH = (int)roundf(halfH2 * p);
     if (flapH > 0) {
+      // Growing back out of the hinge - starts edge-on (shadow-tinted)
+      // and brightens towards white as it swings down to rest.
+      digitSpr.setTextColor(blend565(COL_FLIP_TEXT, COL_FLIP_SHADOW, 1.0f - p), COL_FLIP_CARD);
       digitSpr.setViewport(0, hingeY, CELL_DIGIT_W, flapH);
       digitSpr.drawString(String(toCh), CELL_DIGIT_W / 2, textCy);
       digitSpr.resetViewport();
@@ -475,6 +498,7 @@ void drawFlipDigitCellAnimated(int col, char fromCh, char toCh, float progress) 
   }
 
   digitSpr.fillRect(cardX, hingeY - 1, cardW, 2, COL_FLIP_HINGE);
+  drawFlipHingePins(cardX, cardW, hingeY);
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
