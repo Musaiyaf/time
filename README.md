@@ -206,18 +206,22 @@ your router's client list instead). Reflash, hold OK for 3s at power-up, or
 use the on-device WiFi menu item to reconnect to a different network.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between five clock faces: the rainbow grid face; a retro LED face
+cycle between six clock faces: the rainbow grid face; a retro LED face
 (classic digital-alarm-clock style 7-segment digits, bright red on black,
 with a faint ghost of the unlit segments); [**Custom**](#custom-face),
 which shows your own background image and colours from an SD card;
 [**Video**](#video-wallpaper), which loops a short video clip fullscreen;
-and [**Photo**](#photo-face), a font-sampler face - each digit *value*
+[**Photo**](#photo-face), a font-sampler face - each digit *value*
 0-9 is its own real photographed typeface and colour, not one consistent
 font - on a plain white background (several of the digits are themselves
 too dark to read on the black background every other face uses), with a
-matching white status bar. The status bar re-skins to match whichever
-face is active (or hides entirely on Video). The choice isn't saved
-across a power cycle - it always starts on the rainbow grid face.
+matching white status bar; and **Botanical**, illuminated-manuscript
+digits - an orange/red letterform on its own black panel, bordered with
+green vines and small yellow flowers - on a deep vine-green background
+sampled from that same artwork, with a matching green status bar and
+cream text. The status bar re-skins to match whichever face is active
+(or hides entirely on Video). The choice isn't saved across a power
+cycle - it always starts on the rainbow grid face.
 
 ### Custom Face
 
@@ -294,6 +298,18 @@ invisible on the black background every other face uses - so Photo runs
 on a plain white background instead, with a matching white status bar
 (`THEME_PHOTO` in `clock_display.cpp`), rather than re-skinning to a dark
 badge palette like the other faces.
+
+### Botanical Face
+
+An illuminated-manuscript style face: each digit is its own orange/red
+letterform on a black panel, bordered with green vines and small yellow
+flowers, in the manner of a historiated initial from an old manuscript
+page. Unlike Photo, each digit's black panel is kept as part of the
+artwork rather than removed - what changes per face is the *background
+behind and around* the panels and the status bar, both set to a deep
+vine-green sampled straight from the digits' own leaves (`COL_BOTANICAL_BG`
+in `clock_display.cpp`), with cream badge text sampled from the source
+art's own parchment-page background.
 
 **On-device main menu:** hold OK (not a tap - hold it down) on any clock
 face to open the top-level menu: three icon tiles, **SD Card**,

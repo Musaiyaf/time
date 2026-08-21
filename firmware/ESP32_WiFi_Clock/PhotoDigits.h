@@ -1,5 +1,6 @@
 #pragma once
 #include <Arduino.h>
+#include "PhotoDigitTypes.h"
 
 // Photo-traced mixed-style digits (0-9), one distinct font/color per
 // digit value, background removed and re-composited onto white (this set
@@ -1706,11 +1707,6 @@ const uint16_t img_9[] PROGMEM = {
 };
 const int img_9_width  = 109;
 const int img_9_height = 167;
-
-struct PhotoDigit {
-  const uint16_t *data;
-  uint8_t w, h;
-};
 
 const PhotoDigit PHOTO_DIGITS[10] = {
   {img_0, img_0_width, img_0_height},

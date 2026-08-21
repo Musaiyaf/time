@@ -3,6 +3,7 @@
 #include "sd_card.h"
 #include "video_player.h"
 #include "PhotoDigits.h"
+#include "BotanicalDigits.h"
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
 #include "BebasDigits123.h"
@@ -98,6 +99,24 @@ const BadgeTheme THEME_PHOTO = {
   TFT_WHITE, TFT_BLACK,   // wifi
 };
 
+// Botanical face: the deep vine-green sampled from its digits' own
+// illuminated-manuscript artwork, used as both the digit-area background
+// and the badge fill - the same "background colour matches the badges"
+// pattern Photo's white and the rainbow grid's per-badge colours already
+// use, just with one shared colour instead of many. Cream text, sampled
+// from the source art's own parchment-page background, reads clearly on
+// the green and echoes the manuscript-page look.
+const uint16_t COL_BOTANICAL_BG   = tft.color565(39, 93, 77);
+const uint16_t COL_BOTANICAL_TEXT = tft.color565(220, 210, 185);
+const BadgeTheme THEME_BOTANICAL = {
+  COL_BOTANICAL_BG, COL_BOTANICAL_TEXT,   // year
+  COL_BOTANICAL_BG, COL_BOTANICAL_TEXT,   // month
+  COL_BOTANICAL_BG, COL_BOTANICAL_TEXT,   // day
+  COL_BOTANICAL_BG, COL_BOTANICAL_TEXT,   // week
+  COL_BOTANICAL_BG, COL_BOTANICAL_TEXT,   // day-of-year
+  COL_BOTANICAL_BG, COL_BOTANICAL_TEXT,   // wifi
+};
+
 // ---- Layout -----------------------------------------------------------
 const int SCR_W = TFT_SCREEN_WIDTH;
 const int SCR_H = TFT_SCREEN_HEIGHT;
@@ -158,7 +177,8 @@ enum ClockFaceId {
   FACE_CUSTOM = 2,
   FACE_VIDEO = 3,
   FACE_PHOTO = 4,
-  FACE_COUNT = 5
+  FACE_BOTANICAL = 5,
+  FACE_COUNT = 6
 };
 int currentFace = FACE_RAINBOW_GRID;
 
@@ -238,6 +258,7 @@ void ensureCustomFaceLoaded() {
 const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
   if (currentFace == FACE_PHOTO) return THEME_PHOTO;
+  if (currentFace == FACE_BOTANICAL) return THEME_BOTANICAL;
   if (currentFace == FACE_CUSTOM) {
     static BadgeTheme customTheme;
     uint16_t bg = tft.color565(10, 10, 14);
@@ -441,38 +462,54 @@ void ensureDigitFont() {
   loadedFont = needed;
 }
 
-// ---- Photo face ---------------------------------------------------------
-// Built from real photographed digits (background removed, RGB565), not a
-// font: a font-sampler style - a different typeface/colour per digit
-// value, several of them dark, so it needs a light background or half of
-// them are near-invisible. Each digit has a different native size, so
-// unlike every other face this can't reuse the fixed CELL_DIGIT_W column
-// grid: laid out edge to edge at their native aspect ratio, a full row
-// would run well past this 320px screen. Every digit is instead scaled to
-// a single fixed-width slot (photoSlotW, computed below as the widest
-// digit at PHOTO_H tall) so the whole row's width - and thus its centred
-// x position - never changes between redraws; without that, the row would
-// visibly jump sideways every second as narrower/wider digits rotated
-// through.
+// ---- Photo faces --------------------------------------------------------
+// Two faces built from real digit images (RGB565), not a font: Photo
+// (PhotoDigits.h, background removed, a font-sampler style - a different
+// typeface/colour per digit value, several of them dark, so it needs a
+// light background or half of them are near-invisible) and Botanical
+// (BotanicalDigits.h, illuminated-manuscript digits - their own black
+// panel is part of the artwork, kept as-is rather than background-
+// removed). Each digit has a different native size, so unlike every other
+// face these can't reuse the fixed CELL_DIGIT_W column grid: laid out
+// edge to edge at their native aspect ratio, a full row would run well
+// past this 320px screen. Every digit is instead scaled to a single
+// fixed-width slot (photoSlotW, computed below as the widest digit across
+// BOTH sets at PHOTO_H tall, so one shared size/layout serves either
+// face) so the whole row's width - and thus its centred x position -
+// never changes between redraws; without that, the row would visibly
+// jump sideways every second as narrower/wider digits rotated through.
 //
 // Shows all 6 digits (HH:MM:SS). At a fixed size that must never clip on
 // any possible time, that caps PHOTO_H well below the cell height (140px)
 // - it's bounded by the digits' own aspect ratio, not by how tight the
-// gaps/colon widths get (tried several combinations; none clear ~59px).
+// gaps/colon widths get (tried several combinations; none clear ~53px,
+// Botanical's "7" at ~0.91 being the tighter of the two sets' worst case).
 const int PHOTO_GAP = 1;       // gap between adjacent digit/colon slots
 const int PHOTO_COLON_W = 7;
-// Widest native digit ("8", 141x165) sets the worst-case aspect ratio
-// (~0.855). At H=57, 6 slots * ceil(0.855*57)=49 + 2*7 (colons) + 7*1
-// (gaps) = 294 + 14 + 7 = 315px, safely under SCR_W (320).
-const int PHOTO_H = 57;
-int photoSlotW = 0;       // widest scaled digit - set in begin()
+const int PHOTO_H = 53;
+int photoSlotW = 0;       // widest scaled digit (either set) - set in begin()
 int photoRowStartX = 0;   // fixed row x so it never shifts between redraws
 int photoRowY = 0;
 
-// Scaled width of digit d (0-9) at a fixed height of PHOTO_H, preserving
-// its native aspect ratio.
-int photoScaledWidth(int d) {
-  const PhotoDigit &pd = PHOTO_DIGITS[d];
+// Which digit set/background/colon colour the current face uses. Photo's
+// mixed set includes several dark digits (black/dark-brown/dark-navy)
+// that would be near-invisible on black, so it gets a white background
+// and dark colon dots; Botanical's digits already carry their own black
+// panel, so they sit on the same deep green as their badges.
+const PhotoDigit *activePhotoSet() {
+  return (currentFace == FACE_BOTANICAL) ? BOTANICAL_DIGITS : PHOTO_DIGITS;
+}
+uint16_t activePhotoBg() {
+  return (currentFace == FACE_BOTANICAL) ? COL_BOTANICAL_BG : TFT_WHITE;
+}
+uint16_t activePhotoColonColor() {
+  return (currentFace == FACE_BOTANICAL) ? COL_BOTANICAL_TEXT : TFT_BLACK;
+}
+
+// Scaled width of digit d (0-9) in the given set at a fixed height of
+// PHOTO_H, preserving its native aspect ratio.
+int photoScaledWidth(const PhotoDigit *set, int d) {
+  const PhotoDigit &pd = set[d];
   return (pd.w * PHOTO_H + pd.h - 1) / pd.h; // ceil
 }
 
@@ -480,9 +517,9 @@ int photoScaledWidth(int d) {
 // photoDigitSpr at (photoSlotW x PHOTO_H) - photoSlotW rather than just
 // this digit's own scaled width, so a narrower digit's leftover slot
 // space still gets a background pixel instead of being left undrawn.
-void drawPhotoDigitToSprite(int d, uint16_t bg) {
-  const PhotoDigit &pd = PHOTO_DIGITS[d];
-  int sw = photoScaledWidth(d);
+void drawPhotoDigitToSprite(const PhotoDigit *set, int d, uint16_t bg) {
+  const PhotoDigit &pd = set[d];
+  int sw = photoScaledWidth(set, d);
   for (int y = 0; y < PHOTO_H; y++) {
     int sy = (y * pd.h) / PHOTO_H;
     const uint16_t *row = pd.data + (size_t)sy * pd.w;
@@ -515,8 +552,9 @@ void drawPhotoColon(int x, bool visible, uint16_t bg, uint16_t dotColor) {
 // meaningful to diff per-digit; this just runs whenever any digit or the
 // colon blink state changes (see update()).
 void drawPhotoRow(const char *buf, bool colonVisible) {
-  uint16_t bg = TFT_WHITE;
-  uint16_t colonColor = TFT_BLACK;
+  const PhotoDigit *set = activePhotoSet();
+  uint16_t bg = activePhotoBg();
+  uint16_t colonColor = activePhotoColonColor();
   tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, bg);
   int x = photoRowStartX;
   int idx = 0;
@@ -526,7 +564,7 @@ void drawPhotoRow(const char *buf, bool colonVisible) {
       x += PHOTO_COLON_W + PHOTO_GAP;
     } else {
       int d = buf[idx++] - '0';
-      drawPhotoDigitToSprite(d, bg);
+      drawPhotoDigitToSprite(set, d, bg);
       photoDigitSpr.pushSprite(x, photoRowY);
       x += photoSlotW + PHOTO_GAP;
     }
@@ -748,7 +786,8 @@ void begin() {
   wifiSpr.createSprite(B_WIFI.w, TOPBAR_H);
 
   for (int d = 0; d <= 9; d++) {
-    photoSlotW = max(photoSlotW, photoScaledWidth(d));
+    photoSlotW = max(photoSlotW, photoScaledWidth(PHOTO_DIGITS, d));
+    photoSlotW = max(photoSlotW, photoScaledWidth(BOTANICAL_DIGITS, d));
   }
   photoDigitSpr.createSprite(photoSlotW, PHOTO_H);
   int photoRowW = 6 * photoSlotW + 2 * PHOTO_COLON_W + 7 * PHOTO_GAP;
@@ -882,7 +921,7 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
       }
       tft.setFreeFont(nullptr);
     }
-  } else if (currentFace == FACE_PHOTO) {
+  } else if (currentFace == FACE_PHOTO || currentFace == FACE_BOTANICAL) {
     // Every slot's x position is fixed (see drawPhotoRow()), so there's
     // nothing to diff per-digit - just redraw the whole row when anything
     // in it changed. lastDigit[0..5] doubles as this face's HHMMSS cache
