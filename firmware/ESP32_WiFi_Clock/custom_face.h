@@ -62,12 +62,16 @@ extern const int BG_H;
 // BG_H, row-major), or nullptr if hasBackgroundImage() is false.
 const uint16_t *backgroundPixels();
 
-// One digit/colon glyph's own native size and RGB565 pixel data. ch is
-// '0'-'9' or ':'. pixels is null only if there's no active face at all -
-// the design tool requires all 11 glyphs before it will export a file, so
-// a successfully loaded face always has every one of them.
+// One digit/colon glyph's own native size, position nudge and RGB565
+// pixel data. ch is '0'-'9' or ':'. pixels is null only if there's no
+// active face at all - the design tool requires all 11 glyphs before it
+// will export a file, so a successfully loaded face always has every one
+// of them. dx/dy are a pixel offset from this glyph's auto-centred slot
+// position (see drawCustomFaceRow() in clock_display.cpp) - 0,0 unless
+// the face's author dragged it off-centre in the design tool.
 struct Glyph {
   int w = 0, h = 0;
+  int dx = 0, dy = 0;
   const uint16_t *pixels = nullptr;
 };
 Glyph glyphFor(char ch);

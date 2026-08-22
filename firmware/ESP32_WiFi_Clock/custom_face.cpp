@@ -7,8 +7,14 @@ namespace {
 const char *NVS_NAMESPACE = "clockcfg";
 const char *NVS_KEY = "customFacePath";
 
-const char MAGIC[4] = {'C', 'F', 'C', '1'};
+// CFC2: each glyph header carries a dx/dy position nudge (added in the
+// tool's drag-to-move/stretch editor) - one field wider than CFC1's plain
+// w/h, so the two aren't binary-compatible. No reader for CFC1 is kept -
+// early enough in this feature's life that there's nothing worth
+// preserving; rebuild any old file with the current tool.
+const char MAGIC[4] = {'C', 'F', 'C', '2'};
 const int NAME_LEN = 28; // 27 chars + NUL - must match the design tool's export
+const int GLYPH_HEADER_LEN = 8; // uint16 w, uint16 h, int16 dx, int16 dy
 
 // Order the file stores glyphs in, and the order glyphFor() looks them up
 // by - must match tools/make_custom_face.html's export function exactly.
@@ -21,6 +27,7 @@ int glyphIndex(char ch) {
 }
 
 uint16_t rd16(const uint8_t *p) { return (uint16_t)p[0] | ((uint16_t)p[1] << 8); }
+int16_t rdS16(const uint8_t *p) { return (int16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8)); }
 
 String activePathVal;
 String activeNameVal;
@@ -109,24 +116,26 @@ bool setActive(const String &path) {
 
   if (!SdCard::openSeqRead(path)) return false;
 
-  // Every glyph stores its own w/h right before its pixels, so the total
-  // size (and thus how big one allocation needs to be) isn't known until
-  // this first pass reads all 11 headers back to back.
+  // Every glyph stores its own w/h/dx/dy right before its pixels, so the
+  // total size (and thus how big one allocation needs to be) isn't known
+  // until this first pass reads all 11 headers back to back.
   size_t fileOff = HEADER_LEN + (hasBgV ? (size_t)BG_W * BG_H * 2 : 0);
-  int glyphW[11], glyphH[11];
+  int glyphW[11], glyphH[11], glyphDx[11], glyphDy[11];
   size_t glyphBytes[11];
   size_t totalGlyphBytes = 0;
   for (int i = 0; i < 11; i++) {
-    uint8_t dims[4];
-    if (SdCard::readSeqAt(fileOff, dims, 4) != 4) {
+    uint8_t dims[GLYPH_HEADER_LEN];
+    if (SdCard::readSeqAt(fileOff, dims, GLYPH_HEADER_LEN) != GLYPH_HEADER_LEN) {
       SdCard::closeSeqRead();
       return false;
     }
     glyphW[i] = rd16(dims);
     glyphH[i] = rd16(dims + 2);
+    glyphDx[i] = rdS16(dims + 4);
+    glyphDy[i] = rdS16(dims + 6);
     glyphBytes[i] = (size_t)glyphW[i] * glyphH[i] * 2;
     totalGlyphBytes += glyphBytes[i];
-    fileOff += 4 + glyphBytes[i];
+    fileOff += GLYPH_HEADER_LEN + glyphBytes[i];
   }
 
   size_t bgBytes = hasBgV ? (size_t)BG_W * BG_H * 2 : 0;
@@ -152,7 +161,7 @@ bool setActive(const String &path) {
 
   CustomFace::Glyph newGlyphs[11];
   for (int i = 0; i < 11; i++) {
-    readOff += 4; // this glyph's own w/h header, already captured above
+    readOff += GLYPH_HEADER_LEN; // this glyph's own header, already captured above
     if (SdCard::readSeqAt(readOff, newBuf + writeOff, glyphBytes[i]) != glyphBytes[i]) {
       SdCard::closeSeqRead();
       free(newBuf);
@@ -160,6 +169,8 @@ bool setActive(const String &path) {
     }
     newGlyphs[i].w = glyphW[i];
     newGlyphs[i].h = glyphH[i];
+    newGlyphs[i].dx = glyphDx[i];
+    newGlyphs[i].dy = glyphDy[i];
     newGlyphs[i].pixels = (const uint16_t *)(newBuf + writeOff);
     readOff += glyphBytes[i];
     writeOff += glyphBytes[i];

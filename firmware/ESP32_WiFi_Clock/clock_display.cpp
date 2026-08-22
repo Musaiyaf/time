@@ -721,14 +721,16 @@ void drawCustomFaceRow(const char *buf, bool colonVisible) {
       if (colonVisible) {
         CustomFace::Glyph g = CustomFace::glyphFor(':');
         if (g.pixels) {
-          tft.pushImage(x + (colonW - g.w) / 2, rowY + (rowH - g.h) / 2, g.w, g.h, g.pixels);
+          // dx/dy nudge the auto-centred position - 0,0 unless the design
+          // tool's drag-to-move/stretch editor moved this glyph off-centre.
+          tft.pushImage(x + (colonW - g.w) / 2 + g.dx, rowY + (rowH - g.h) / 2 + g.dy, g.w, g.h, g.pixels);
         }
       }
       x += colonW + CUSTOM_GAP;
     } else {
       CustomFace::Glyph g = CustomFace::glyphFor(buf[idx++]);
       if (g.pixels) {
-        tft.pushImage(x + (slotW - g.w) / 2, rowY + (rowH - g.h) / 2, g.w, g.h, g.pixels);
+        tft.pushImage(x + (slotW - g.w) / 2 + g.dx, rowY + (rowH - g.h) / 2 + g.dy, g.w, g.h, g.pixels);
       }
       x += slotW + CUSTOM_GAP;
     }

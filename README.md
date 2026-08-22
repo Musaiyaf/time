@@ -330,19 +330,19 @@ this face was built from.
 ### Custom Face
 
 A clock face built entirely from your own artwork: your own image for
-every digit (0-9) and the colon - each one drawn **pixel-exact** on the
-clock rather than stretched to fit, so design them at the size you
-actually want them to appear (capped to 140px tall; anything taller is
-scaled down to fit, never up) - plus an optional 320&times;140 background
-image and the status bar's badge colours, all packed into one `.cface`
-file.
+every digit (0-9) and the colon, each independently sized and positioned
+- capped to 140px tall, but otherwise as big, small, stretched, or
+off-centre from its slot as you set it - plus an optional
+320&times;140 background image and the status bar's badge colours, all
+packed into one `.cface` file.
 
 `.cface` is a small custom binary: magic bytes, an embedded name, three
 RGB565 colours, an optional background image, then each glyph's own
-width/height plus its raw RGB565 pixels - see the comment at the top of
-`custom_face.h` for the exact byte layout if you want to build one
-yourself (a small script that converts your source images and writes
-this header is enough - no firmware changes needed).
+width/height, a pixel position offset (dx/dy) from its auto-centred slot,
+and its raw RGB565 pixels - see the comment at the top of `custom_face.h`
+for the exact byte layout if you want to build one yourself (a small
+script that converts your source images and writes this header is
+enough - no firmware changes needed).
 
 Upload the finished file from the web portal's **Custom Faces** card
 (works over WiFi, no need to remove the SD card) - the card lists
