@@ -141,9 +141,6 @@ firmware/ESP32_WiFi_Clock/
   alarm.h/.cpp             - a single daily on/off alarm, set from Settings
   custom_face.h/.cpp       - loads user-designed .cface files (Custom Face) from SD
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
-tools/make_digit_font.html   - traces photos into a compilable digit font (.h)
-tools/make_custom_face.html  - builds a Custom Face .cface file (see above)
-tools/preview/               - renders the weather/calendar screens to PNG on the host, no device needed (see tools/preview/README.md)
 .github/workflows/build-firmware.yml - CI build producing a flashable .bin
 ```
 
@@ -332,34 +329,27 @@ this face was built from.
 
 ### Custom Face
 
-Design your own clock face entirely off-device: open
-[`tools/make_custom_face.html`](tools/make_custom_face.html) in any
-browser (no server needed, no internet access needed - it runs
-completely locally) and it walks you through:
+A clock face built entirely from your own artwork: your own image for
+every digit (0-9) and the colon - each one drawn **pixel-exact** on the
+clock rather than stretched to fit, so design them at the size you
+actually want them to appear (capped to 140px tall; anything taller is
+scaled down to fit, never up) - plus an optional 320&times;140 background
+image and the status bar's badge colours, all packed into one `.cface`
+file.
 
-- an optional background image (crop/zoom to fit, same tool as Video
-  Wallpaper's crop step below),
-- your own artwork for every digit (0-9) and the colon - each one drawn
-  **pixel-exact** on the clock rather than stretched to fit, so design
-  them at the size you actually want them to appear (capped to 140px
-  tall; anything taller is scaled down to fit, never up),
-- the status bar's badge background and text colours,
-- a live preview of the assembled face using the clock's own layout math.
+`.cface` is a small custom binary: magic bytes, an embedded name, three
+RGB565 colours, an optional background image, then each glyph's own
+width/height plus its raw RGB565 pixels - see the comment at the top of
+`custom_face.h` for the exact byte layout if you want to build one
+yourself (a small script that converts your source images and writes
+this header is enough - no firmware changes needed).
 
-When you're happy with it, **Build & download .cface** saves one file.
-Upload that from the web portal's **Custom Faces** card (works over WiFi,
-no need to remove the SD card) - the card lists everything you've saved
-there and can remove any of them. The SD card can hold as many `.cface`
-files as fit; which one the **Custom** clock face actually shows is
-picked on-device from **Settings > Custom Face**, which also lets you
-switch back to "None".
-
-The `.cface` file itself is a small custom binary (magic bytes, embedded
-name, three RGB565 colours, an optional 320&times;140 background image,
-then each glyph's own width/height plus its raw RGB565 pixels) - see the
-comment at the top of `custom_face.h` and `tools/make_custom_face.html`
-for the exact byte layout if you want to generate one programmatically
-instead.
+Upload the finished file from the web portal's **Custom Faces** card
+(works over WiFi, no need to remove the SD card) - the card lists
+everything you've saved there and can remove any of them. The SD card
+can hold as many `.cface` files as fit; which one the **Custom** clock
+face actually shows is picked on-device from **Settings > Custom Face**,
+which also lets you switch back to "None".
 
 ### Weather
 
