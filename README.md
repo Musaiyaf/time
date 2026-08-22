@@ -335,23 +335,40 @@ this face was built from.
 
 A two-tier gauge, modelled on a smartwatch dial. The hour stands alone on
 the left in the big Fredoka digits. The current minute sits inside an open
-"stadium" - a rounded cap on the left with two rails running out towards
-the right edge and no closing cap - and two concentric rings of tick marks
-sweep out through that open mouth: the inner ring counts the minutes
-either side of now, the outer one the seconds, with an amber dot riding
-the outer ring at the live position. Both rings share one centre, off to
-the left of the stadium's mouth, so a tick is almost horizontal near the
-middle and tilts progressively further as it sweeps up or down, the way a
-speedometer scale does.
+"stadium" - a rounded cap on the left with two rails running out to the
+right and no closing cap - and two concentric rings of tick marks sweep
+out past that open mouth: the inner ring counts the minutes either side of
+now, the outer one the seconds, with an amber dot riding the outer ring at
+the live position. Both rings share one centre, off to the left of the
+stadium's mouth, so a tick is almost horizontal near the middle and tilts
+progressively further as it sweeps up or down, the way a speedometer scale
+does.
 
-The layout rule worth knowing about is the draw order. The scale numbers
-are placed **first**, then the rails and ticks are drawn *around* them: a
-rail breaks into segments where a number sits on it, and a tick underneath
-a number is skipped entirely. That means every number stays pinned to its
-own ring's radius - none is ever nudged aside to dodge a collision - which
-is what makes the two scales read as two clean arcs rather than digits
-scattered at assorted distances. A number that would land on the minute
-digits themselves is dropped rather than moved, for the same reason.
+The scale numbers are placed **first** and a tick underneath one is
+skipped, so no number ever has to be nudged off its ring's radius to dodge
+a collision - which is what makes the scale read as one clean arc rather
+than digits scattered at assorted distances.
+
+**The numbers and the rails are kept in separate bands**, which is worth
+understanding before moving either. A number sits on a rail whenever its
+centre comes within ~8px of one, and at radius `r` that happens at
+`x = DIAL_GX + sqrt(r² - 900)`. The obvious fix - breaking the rail around
+the number - leaves the two rails different lengths and littered with
+floating stubs, and *which* times of day look bad depends on where the
+multiples of 5 happen to fall, so it looks fine in a mockup and wrong on
+the bench. Instead the numbers live at `DIAL_LBL_R_IN` (100), whose
+closest approach to a rail is x=248, and the rails stop at
+`DIAL_PILL_RIGHT` (246) - short of that, always. The rails are then simply
+two unbroken, equal-length bars at every minute of every hour, and they
+still clear the minute digits (which end at x=227) by 19px. The seconds
+ring deliberately carries no numbers for the same reason: a second tier of
+them 11px outside the minute numbers collides with them at most times.
+
+The cap and the rails are drawn to the same 2px band. `drawSmoothArc`'s
+radii are *inclusive*, so `(r, r-1)` covers rows `gy-r … gy-r+1` at the top
+tangent and `gy+r-1 … gy+r` at the bottom; the rails use exactly those
+rows. Getting this off by one leaves a visible step where the cap meets
+each rail.
 
 Everything from the stadium rightwards goes through one offscreen sprite,
 repainted once a second (the seconds ring moves); the hour digits sit

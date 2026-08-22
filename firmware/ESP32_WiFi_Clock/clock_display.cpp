@@ -751,32 +751,50 @@ void drawCustomFaceRow(const char *buf, bool colonVisible) {
 // ---- Dial face -----------------------------------------------------------
 // A two-tier gauge, modelled on a smartwatch dial: the hour stands alone on
 // the left in the big Fredoka digits; the current minute sits inside an open
-// "stadium" (a rounded cap on the left with two rails running out towards
-// the right edge, and NO closing cap); and two concentric rings of tick
-// marks sweep out through that open mouth - the inner ring counting the
-// minutes either side of now, the outer one the seconds, with an accent dot
-// riding the outer ring at the live position.
+// "stadium" (a rounded cap on the left with two rails running out to the
+// right, and NO closing cap); and two concentric rings of tick marks sweep
+// out past that open mouth - the inner ring counting the minutes either side
+// of now, the outer one the seconds, with an accent dot riding the outer
+// ring at the live position. The minute numbers sit on the inner ring, in
+// the clear band between the two rings.
 //
 // Both rings share one centre, off to the left of the stadium's mouth, so
 // their ticks read as one gauge rather than two unrelated arcs: near the
 // middle a tick is almost horizontal, and it tilts progressively further as
 // it sweeps up or down, the way a speedometer scale does.
 //
-// Draw order carries a rule worth keeping: the scale numbers are laid out
-// FIRST, then the rails and ticks are drawn *around* them - a rail breaks
-// into segments where a number sits on it, and a tick underneath a number is
-// skipped entirely. Every number therefore stays pinned to its own ring's
-// radius (nothing is ever nudged aside to avoid a collision), which is what
-// makes the two scales read as two clean arcs instead of scattered digits.
+// The scale numbers are laid out FIRST and a tick underneath one is skipped,
+// so a number never has to be nudged off its ring's radius to avoid a
+// collision - that is what makes the scale read as one clean arc.
+//
+// The numbers and the rails are kept in separate bands rather than allowed to
+// compete for the same pixels. That is not cosmetic: a number sits on a rail
+// whenever its centre is within about 8px of one, and at radius r that
+// happens at x = DIAL_GX + sqrt(r*r - 900). Breaking the rail around the
+// number (the obvious fix) leaves the two rails different lengths and littered
+// with floating stubs, and which times of day look bad depends on where the
+// multiples of 5 happen to fall. So instead: the numbers live at
+// DIAL_LBL_R_IN, whose closest approach to a rail is x=248, and the rails
+// stop at DIAL_PILL_RIGHT=246 - short of that, always. The rails are then
+// simply two unbroken, equal-length bars at every minute of every hour, and
+// they still clear the minute digits (which end at x=227) by 19px.
+//
+// The seconds ring deliberately has no numbers. A second tier of them 11px
+// outside the minute numbers collides with them at most times, and seconds
+// are read off the moving accent dot, not off a scale.
 const int DIAL_GX = 167;                      // gauge centre x, shared by both rings
 const int DIAL_R_IN = 92, DIAL_R_OUT = 128;   // tick ring radii
 const float DIAL_STEP_IN = 6.6f;              // degrees per minute on the inner ring
 const float DIAL_STEP_OUT = 6.1f;             // degrees per second on the outer ring
 const int DIAL_SLOTS_IN = 7;                  // ticks drawn either side of "now"
 const int DIAL_SLOTS_OUT = 5;
-const int DIAL_LBL_R_IN = 73, DIAL_LBL_R_OUT = 111;  // where each ring's numbers sit
+const int DIAL_LBL_R_IN = 100;                // radius the minute numbers sit on
+const int DIAL_LBL_SLOTS_IN = 5;              // ...and how far out they are labelled.
+                                              // Capped below DIAL_SLOTS_IN because a
+                                              // number at k=+-6 or 7 would fall off the
+                                              // top/bottom of the clock area at this radius.
 const int DIAL_PILL_CX = 192, DIAL_PILL_R = 30;      // stadium cap centre / radius
-const int DIAL_PILL_RIGHT = 298;              // where the two rails stop
+const int DIAL_PILL_RIGHT = 246;              // where the two rails stop - see above
 const int DIAL_MIN_CX = 201;                  // minute digits' centre
 const int DIAL_HOUR_X = 24;                   // left hour cell (cells are CELL_DIGIT_W wide)
 const int DIAL_LBL_INK_H = 11;                // ink height of font 2's digits
@@ -802,11 +820,11 @@ bool dialOverlap(const DialRect &a, const DialRect &b) {
 struct DialLabel {
   int cx, cy;
   char txt[4];
-  uint16_t col;
-  DialRect box;   // padded, so rails and ticks give it a little breathing room
+  DialRect box;   // padded, so the ticks give it a little breathing room
 };
 
-const int DIAL_MAX_LABELS = 8;
+// An 11-wide window of minutes holds at most 3 multiples of 5; 4 leaves slack.
+const int DIAL_MAX_LABELS = 4;
 
 void drawDialHourDigit(int x, char ch) {
   digitSpr.fillSprite(COL_BG);
@@ -816,9 +834,9 @@ void drawDialHourDigit(int x, char ch) {
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
-// The gauge half: stadium, both tick rings, their numbers and the seconds
-// marker. Screen coordinates throughout - converted to sprite-local ones
-// only at the point of drawing, via the ox/oy offsets.
+// The gauge half: stadium, both tick rings, the minute numbers and the
+// seconds marker. Screen coordinates throughout - converted to sprite-local
+// ones only at the point of drawing, via the ox/oy offsets.
 void drawDialGauge(int mm, int ss) {
   const int gy = CLOCK_TOP + CLOCK_H / 2;
   const int ox = DIAL_SPR_X, oy = CLOCK_TOP;
@@ -828,37 +846,27 @@ void drawDialGauge(int mm, int ss) {
   g.setTextFont(2);
   g.setTextDatum(MC_DATUM);
 
-  // ---- 1. lay the scale numbers out (nothing drawn yet) ----
+  // ---- 1. lay the minute numbers out (nothing drawn yet) ----
   DialLabel lbl[DIAL_MAX_LABELS];
   int nLbl = 0;
-  // The minute digits' own ink is the one thing a scale number may never sit
-  // on; a number that would land there is dropped rather than moved.
-  const DialRect minuteInk = { DIAL_MIN_CX - 26, gy - 17, DIAL_MIN_CX + 26, gy + 17 };
+  for (int k = -DIAL_LBL_SLOTS_IN; k <= DIAL_LBL_SLOTS_IN && nLbl < DIAL_MAX_LABELS; k++) {
+    if (k == 0) continue;      // the stadium is already showing this one, big
+    int v = (mm + k + 60) % 60;
+    if (v % 5 != 0) continue;
+    float rad = radians(k * DIAL_STEP_IN);
+    int lx = DIAL_GX + (int)lroundf(DIAL_LBL_R_IN * cosf(rad));
+    int ly = gy - (int)lroundf(DIAL_LBL_R_IN * sinf(rad));
 
-  for (int ring = 0; ring < 2 && nLbl < DIAL_MAX_LABELS; ring++) {
-    int slots     = ring ? DIAL_SLOTS_OUT : DIAL_SLOTS_IN;
-    float step    = ring ? DIAL_STEP_OUT  : DIAL_STEP_IN;
-    int labelR    = ring ? DIAL_LBL_R_OUT : DIAL_LBL_R_IN;
-    int base      = ring ? ss : mm;
-    // the seconds numbers are dimmer, so the two scales read as two tiers
-    uint16_t col  = ring ? COL_DIAL_TICK : COL_DIAL_TICK_MAJ;
-    for (int k = -slots; k <= slots && nLbl < DIAL_MAX_LABELS; k++) {
-      int v = (base + k + 60) % 60;
-      if (v % 5 != 0) continue;
-      float rad = radians(k * step);
-      int lx = DIAL_GX + (int)lroundf(labelR * cosf(rad));
-      int ly = gy - (int)lroundf(labelR * sinf(rad));
-
-      DialLabel &L = lbl[nLbl];
-      snprintf(L.txt, sizeof(L.txt), "%02d", v);
-      int hw = g.textWidth(L.txt) / 2;
-      DialRect ink = { lx - hw, ly - DIAL_LBL_INK_H / 2, lx + hw, ly + DIAL_LBL_INK_H / 2 };
-      if (dialOverlap(ink, minuteInk)) continue;
-      if (ink.x0 < DIAL_SPR_X || ink.x1 > SCR_W || ink.y0 < CLOCK_TOP || ink.y1 > SCR_H) continue;
-      L.cx = lx; L.cy = ly; L.col = col;
-      L.box = { ink.x0 - 3, ink.y0 - 3, ink.x1 + 3, ink.y1 + 3 };
-      nLbl++;
-    }
+    DialLabel &L = lbl[nLbl];
+    snprintf(L.txt, sizeof(L.txt), "%02d", v);
+    int hw = g.textWidth(L.txt) / 2;
+    DialRect ink = { lx - hw, ly - DIAL_LBL_INK_H / 2, lx + hw, ly + DIAL_LBL_INK_H / 2 };
+    // Belt and braces: at this radius and slot count nothing can land off the
+    // clock area, but a future tweak to either could change that silently.
+    if (ink.x0 < DIAL_SPR_X || ink.x1 > SCR_W || ink.y0 < CLOCK_TOP || ink.y1 > SCR_H) continue;
+    L.cx = lx; L.cy = ly;
+    L.box = { ink.x0 - 3, ink.y0 - 3, ink.x1 + 3, ink.y1 + 3 };
+    nLbl++;
   }
 
   // ---- 2. tick marks, skipping any a number is sitting on ----
@@ -890,28 +898,20 @@ void drawDialGauge(int mm, int ss) {
   // ---- 4. the stadium: cap on the left, two rails out to the right ----
   // TFT_eSPI measures arc angles clockwise from 6 o'clock, so 0..180 is
   // exactly the left half - the open-ended shape the reference face uses.
-  g.drawSmoothArc(DIAL_PILL_CX - ox, gy - oy, DIAL_PILL_R, DIAL_PILL_R - 2,
+  //
+  // drawSmoothArc's band is INCLUSIVE of both radii, so (r, r-1) is 2px
+  // thick: at the top tangent it covers rows gy-r and gy-r+1, at the bottom
+  // rows gy+r-1 and gy+r. The rails below use exactly those rows, so the cap
+  // and the rails meet flush instead of stepping by a pixel where they join.
+  const int railW = DIAL_PILL_RIGHT - DIAL_PILL_CX;
+  g.drawSmoothArc(DIAL_PILL_CX - ox, gy - oy, DIAL_PILL_R, DIAL_PILL_R - 1,
                   0, 180, COL_DIAL_TEXT, COL_BG);
-  for (int rail = 0; rail < 2; rail++) {
-    int ry = (rail == 0) ? gy - DIAL_PILL_R : gy + DIAL_PILL_R;
-    int x = DIAL_PILL_CX;
-    while (x < DIAL_PILL_RIGHT) {
-      // the nearest number ahead of us that sits on this rail, if any
-      int gapStart = DIAL_PILL_RIGHT, gapEnd = DIAL_PILL_RIGHT;
-      for (int i = 0; i < nLbl; i++) {
-        const DialRect &b = lbl[i].box;
-        if (b.y0 > ry || b.y1 < ry || b.x1 <= x) continue;
-        if (b.x0 < gapStart) { gapStart = b.x0; gapEnd = b.x1; }
-      }
-      int segEnd = min(gapStart, DIAL_PILL_RIGHT);
-      if (segEnd > x) g.fillRect(x - ox, ry - 1 - oy, segEnd - x, 2, COL_DIAL_TEXT);
-      x = max(x + 1, gapEnd);   // the +1 guarantees this loop always advances
-    }
-  }
+  g.fillRect(DIAL_PILL_CX - ox, gy - DIAL_PILL_R - oy,     railW, 2, COL_DIAL_TEXT);
+  g.fillRect(DIAL_PILL_CX - ox, gy + DIAL_PILL_R - 1 - oy, railW, 2, COL_DIAL_TEXT);
 
   // ---- 5. the numbers, then the minute digits ----
+  g.setTextColor(COL_DIAL_TICK_MAJ, COL_BG);
   for (int i = 0; i < nLbl; i++) {
-    g.setTextColor(lbl[i].col, COL_BG);
     g.drawString(lbl[i].txt, lbl[i].cx - ox, lbl[i].cy - oy);
   }
 
