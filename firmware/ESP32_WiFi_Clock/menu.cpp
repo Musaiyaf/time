@@ -175,11 +175,15 @@ const int SETTINGS_IDX_BUZZER = 5;
 const int SETTINGS_IDX_CUSTOM_FACE = 6;
 int settingsIndex = 0;
 
-// Shared by every scrollable list screen (Settings, the SD card browser) -
-// a coloured heading bar with a position indicator, then full-width rows
-// with the selected one drawn as a solid highlight pill.
-const int LIST_ROW_H = 15; // 8 Settings rows now that Custom Face is one of them
+// Shared by every scrollable list screen (Settings, the SD card browser,
+// the Custom Face picker) - a coloured heading bar with a position
+// indicator, then full-width rows with the selected one drawn as a solid
+// highlight pill. Rows get a comfortable fixed height regardless of how
+// many there are; a list longer than fits scrolls (see LIST_VISIBLE_ROWS)
+// rather than every row getting squeezed thinner.
+const int LIST_ROW_H = 21;
 const int LIST_TOP = 28;
+const int LIST_VISIBLE_ROWS = (TFT_SCREEN_HEIGHT - LIST_TOP - 20) / LIST_ROW_H;
 
 int continentIndex = 0;
 int zoneIndex = 0; // index within TZ_ZONES for the current continent
@@ -324,8 +328,10 @@ void drawMainTiles() {
 // Settings as a real scrollable list (same visual pattern as the SD card
 // browser's drawSdList() below: coloured heading + position, full-width
 // rows, the selected one a solid pill) rather than one item centred at a
-// time - all 6 entries fit without needing that screen's scroll window.
-// Each row keeps its item's own accent colour (COL_ICON_WIFI etc.) as its
+// time. Now more rows than fit on screen at LIST_ROW_H's comfortable
+// height, so this scrolls (a centred window around settingsIndex) instead
+// of shrinking every row to squeeze all of them in at once. Each row
+// keeps its item's own accent colour (COL_ICON_WIFI etc.) as its
 // selected-pill colour, the same identity those colours already carry
 // elsewhere, rather than one flat colour for every row.
 void drawSettingsList() {
@@ -341,8 +347,16 @@ void drawSettingsList() {
   tft.setTextDatum(MR_DATUM);
   tft.drawString(String(settingsIndex + 1) + "/" + String(SETTINGS_COUNT), W - 6, 13);
 
-  for (int i = 0; i < SETTINGS_COUNT; i++) {
-    int y = LIST_TOP + i * LIST_ROW_H;
+  int windowStart = 0;
+  if (SETTINGS_COUNT > LIST_VISIBLE_ROWS) {
+    windowStart = settingsIndex - LIST_VISIBLE_ROWS / 2;
+    windowStart = max(0, min(windowStart, SETTINGS_COUNT - LIST_VISIBLE_ROWS));
+  }
+  int rowsToShow = min(SETTINGS_COUNT - windowStart, LIST_VISIBLE_ROWS);
+
+  for (int row = 0; row < rowsToShow; row++) {
+    int i = windowStart + row;
+    int y = LIST_TOP + row * LIST_ROW_H;
     bool sel = (i == settingsIndex);
     uint16_t rowBg = sel ? SETTINGS_COLORS[i] : COL_BG;
     uint16_t txtColor = sel ? COL_BG : TFT_WHITE;
@@ -695,10 +709,8 @@ String sdParentPath(const String &path) {
 // file browser) rather than one-entry-at-a-time - the SD card is the one
 // place in this menu where you might be picking from dozens of entries, so
 // stepping through them one by one doesn't scale the way it does for a
-// handful of menu items. Shares LIST_ROW_H/LIST_TOP with Settings' own
-// list screen (see drawSettingsList() above); only this one also needs a
-// scroll window, since a folder can hold far more entries than fit at once.
-const int SD_VISIBLE_ROWS = (TFT_SCREEN_HEIGHT - LIST_TOP - 20) / LIST_ROW_H;
+// handful of menu items. Shares LIST_ROW_H/LIST_TOP/LIST_VISIBLE_ROWS with
+// Settings' own list screen (see drawSettingsList() above).
 
 void drawSdList(const String &path, SdCard::Entry *entries, int count, int idx,
                  const char *hint = "< > move   OK open   hold back") {
@@ -721,11 +733,11 @@ void drawSdList(const String &path, SdCard::Entry *entries, int count, int idx,
     tft.drawString("(empty)", TFT_SCREEN_WIDTH / 2, LIST_TOP + 40);
   } else {
     int windowStart = 0;
-    if (count > SD_VISIBLE_ROWS) {
-      windowStart = idx - SD_VISIBLE_ROWS / 2;
-      windowStart = max(0, min(windowStart, count - SD_VISIBLE_ROWS));
+    if (count > LIST_VISIBLE_ROWS) {
+      windowStart = idx - LIST_VISIBLE_ROWS / 2;
+      windowStart = max(0, min(windowStart, count - LIST_VISIBLE_ROWS));
     }
-    int rowsToShow = min(count - windowStart, SD_VISIBLE_ROWS);
+    int rowsToShow = min(count - windowStart, LIST_VISIBLE_ROWS);
 
     for (int i = 0; i < rowsToShow; i++) {
       int entryIdx = windowStart + i;
@@ -881,11 +893,11 @@ void runCustomFacePicker() {
       tft.drawString(String(idx + 1) + "/" + String(count), TFT_SCREEN_WIDTH - 6, 13);
 
       int windowStart = 0;
-      if (count > SD_VISIBLE_ROWS) {
-        windowStart = idx - SD_VISIBLE_ROWS / 2;
-        windowStart = max(0, min(windowStart, count - SD_VISIBLE_ROWS));
+      if (count > LIST_VISIBLE_ROWS) {
+        windowStart = idx - LIST_VISIBLE_ROWS / 2;
+        windowStart = max(0, min(windowStart, count - LIST_VISIBLE_ROWS));
       }
-      int rowsToShow = min(count - windowStart, SD_VISIBLE_ROWS);
+      int rowsToShow = min(count - windowStart, LIST_VISIBLE_ROWS);
 
       for (int i = 0; i < rowsToShow; i++) {
         int entryIdx = windowStart + i;
