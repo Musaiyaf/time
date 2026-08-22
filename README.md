@@ -237,7 +237,7 @@ click straight from its row, no submenu needed - shows its current
 ON/OFF state), and **About**.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between five clock faces: the rainbow grid face, where each digit
+cycle between six clock faces: the rainbow grid face, where each digit
 rolls to its next value like a train on a vertical rail track - the old
 digit slides up and off the top of its cell while the new one rises from
 below to take its place, rather than the instant swap every other face
@@ -248,12 +248,14 @@ digits, bright red on black, with a faint ghost of the unlit segments);
 digits - an orange/red letterform on its own black panel, bordered with
 green vines and small yellow flowers - on a deep vine-green background
 sampled from that same artwork, with a matching green status bar and
-cream text; and [**Silver**](#silver-face), chrome-gradient numerals with
+cream text; [**Silver**](#silver-face), chrome-gradient numerals with
 a soft glow on a plain black background, with a matching gunmetal status
 bar that gets the same glossy top-edge highlight as the digits
-themselves. The status bar re-skins to match whichever face is active
-(or hides entirely on Video). The choice isn't saved across a power
-cycle - it always starts on the rainbow grid face.
+themselves; and [**Neon**](#neon-face), glowing cyan 7-segment digits on
+black with a small looping astronaut animation beside them. The status
+bar re-skins to match whichever face is active (or hides entirely on
+Video). The choice isn't saved across a power cycle - it always starts
+on the rainbow grid face.
 
 ### Video Wallpaper
 
@@ -303,6 +305,22 @@ gunmetal fill (`COL_SILVER_BADGE`) rather than the usual per-face flat
 colour, plus a glossy highlight across its top edge - the same brightening
 pass (`applyDigitGloss()`) the rainbow grid face already uses on its own
 digit cells, reused here so the badges visibly "shine" like the digits do.
+
+### Neon Face
+
+Glowing cyan digits on black, styled after those small aftermarket
+"neon glow" LCD mods: each digit is drawn as a 7-segment shape (no font
+involved, same segment-pattern table the LED face uses), and every lit
+segment gets a soft halo underneath it - a wider, dimmer rect drawn first,
+then the bright core rect on top - so it reads as glowing rather than a
+flat LED fill. Unlit segments stay as a faint dark-grey ghost, same idea
+as the LED face's own unlit segments. Beside the time, a small looping
+astronaut animation plays (`NeonAstroAnim.h` - 48 baked RGB565 frames,
+cyan line-art on black, cropped to one consistent bounding box across the
+whole clip so it never jitters as it tumbles). The status badges go
+edge-to-edge with the black background - no visible pill shape, just
+cyan text floating directly on the panel, matching the reference photo
+this face was built from.
 
 ### Weather
 
@@ -492,10 +510,13 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   font, but a self-service option that doesn't need a TTF at all.
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
   per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`)
-  based on `currentFace` - Video, Botanical and Silver bypass this
+  based on `currentFace` - Video, Botanical, Silver and Neon bypass this
   dispatcher entirely and redraw their own whole row each tick
-  (`VideoPlayer::draw()`, `drawPhotoRow()`), since none of them fit the
-  fixed per-cell column grid the other two share. `ClockDisplay::nextFace()`
+  (`VideoPlayer::draw()`, `drawPhotoRow()`, `drawNeonDigitRow()`), since none
+  of them fit the fixed per-cell column grid the other two share. Neon also
+  redraws its corner astronaut animation (`drawNeonAnimFrame()`, reading
+  baked frames from `NeonAstroAnim.h`) on its own faster timer, independent
+  of whether the digits changed. `ClockDisplay::nextFace()`
   cycles through the
   `ClockFaceId` enum (`FACE_COUNT` faces total) and is wired to a LEFT/RIGHT
   tap in `ESP32_WiFi_Clock.ino`. A face that wants its own smooth font

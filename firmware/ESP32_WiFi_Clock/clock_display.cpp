@@ -4,6 +4,7 @@
 #include "video_player.h"
 #include "BotanicalDigits.h"
 #include "SilverDigits.h"
+#include "NeonAstroAnim.h"
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
 // TFT_eSPI.h (with LOAD_GFXFF enabled) already pulls in every Adafruit GFX
@@ -27,6 +28,8 @@ TFT_eSprite weekSpr(&tft);
 TFT_eSprite doySpr(&tft);
 TFT_eSprite wifiSpr(&tft);
 TFT_eSprite photoDigitSpr(&tft); // Botanical/Silver faces - see drawPhotoRow()
+TFT_eSprite neonDigitSpr(&tft);  // Neon face's own glowing digit row - see drawNeonDigitRow()
+TFT_eSprite neonAnimSpr(&tft);   // Neon face's corner astronaut - see drawNeonAnimFrame()
 
 // ---- Theme colours (approximating the reference photo) -------------
 const uint16_t COL_BG        = TFT_BLACK;
@@ -121,6 +124,20 @@ const BadgeTheme THEME_SILVER = {
   COL_SILVER_BADGE, COL_SILVER_TEXT,   // wifi
 };
 
+// Neon face: badges filled with plain black - the same colour as the page
+// behind them - so instead of a visible pill they read as bare glowing
+// cyan text/icons floating on black, matching the reference photo (no
+// badge shapes at all, just status text directly on the panel).
+const uint16_t COL_NEON_ACCENT = tft.color565(90, 195, 235);  // status row + unlit glyph tint
+const BadgeTheme THEME_NEON = {
+  COL_BG, COL_NEON_ACCENT,   // year
+  COL_BG, COL_NEON_ACCENT,   // month
+  COL_BG, COL_NEON_ACCENT,   // day
+  COL_BG, COL_NEON_ACCENT,   // week
+  COL_BG, COL_NEON_ACCENT,   // day-of-year
+  COL_BG, COL_NEON_ACCENT,   // wifi
+};
+
 // ---- Layout -----------------------------------------------------------
 const int SCR_W = TFT_SCREEN_WIDTH;
 const int SCR_H = TFT_SCREEN_HEIGHT;
@@ -181,7 +198,8 @@ enum ClockFaceId {
   FACE_VIDEO = 2,
   FACE_BOTANICAL = 3,
   FACE_SILVER = 4,
-  FACE_COUNT = 5
+  FACE_NEON = 5,
+  FACE_COUNT = 6
 };
 int currentFace = FACE_RAINBOW_GRID;
 
@@ -189,6 +207,7 @@ const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
   if (currentFace == FACE_BOTANICAL) return THEME_BOTANICAL;
   if (currentFace == FACE_SILVER) return THEME_SILVER;
+  if (currentFace == FACE_NEON) return THEME_NEON;
   return THEME_RAINBOW;
 }
 
@@ -536,6 +555,104 @@ void drawPhotoRow(const char *buf, bool colonVisible) {
   }
 }
 
+// ---- Neon Face -----------------------------------------------------------
+// Cyan-glow digits on black, with a small looping astronaut animation
+// beside them (NeonAstroAnim.h - baked-in frames, not user-uploadable like
+// Video Face's clip; see that header's own comment for where it came from
+// and how its flat white background was removed before baking). Status
+// badges reuse the existing pill system with THEME_NEON, whose background
+// matches the page - see that theme's own comment.
+//
+// Digits are drawn as 7-segment shapes (reusing SEVEN_SEG's pattern table
+// from the LED face above) rather than a font, each lit segment given a
+// soft halo - a wider, dimmer rect drawn first, then the bright core rect
+// on top - so it reads as glowing rather than a flat LED-style fill.
+//
+// Unlike every other face, this one needs a second, faster redraw
+// independent of the once-a-second digit change: the astronaut animation
+// advances on its own ~120ms timer regardless of whether HH:MM:SS
+// changed - see the two separate dirty checks in update()'s FACE_NEON
+// branch below.
+const uint16_t COL_NEON_ON   = tft.color565(225, 242, 252); // bright digit core
+const uint16_t COL_NEON_HALO = tft.color565(40, 95, 120);   // soft glow underneath
+const uint16_t COL_NEON_OFF  = tft.color565(18, 22, 28);    // faint unlit ghost
+
+const int NEON_DW = 30, NEON_DH = 70, NEON_THICK = 8;
+const int NEON_DIGIT_GAP = 4;
+const int NEON_COLON_W = 12;
+const int NEON_ROW_W = 3 * (2 * NEON_DW + NEON_DIGIT_GAP) + 2 * NEON_COLON_W;
+const int NEON_ROW_MARGIN = 6; // sprite padding so segment halos never clip at its edge
+int neonRowX = 0, neonRowY = 0;   // fixed screen position, set in begin()
+int neonAnimX = 0, neonAnimY = 0; // fixed screen position, set in begin()
+
+int neonAnimFrame = 0;
+unsigned long neonAnimLastMs = 0;
+const unsigned long NEON_ANIM_FRAME_MS = 120;
+
+void drawNeonSegment(int x, int y, int w, int h, bool on) {
+  if (on) {
+    neonDigitSpr.fillRect(x - 2, y - 2, w + 4, h + 4, COL_NEON_HALO);
+    neonDigitSpr.fillRect(x, y, w, h, COL_NEON_ON);
+  } else {
+    neonDigitSpr.fillRect(x, y, w, h, COL_NEON_OFF);
+  }
+}
+
+// Same segment layout math as drawSevenSegDigitCell() above, just at this
+// face's own size and drawn into the shared row sprite at a given x
+// instead of one CELL_DIGIT_W-wide sprite per digit.
+void drawNeonDigit(int cellX, char ch) {
+  const int W = NEON_DW, H = NEON_DH, T = NEON_THICK;
+  const int gapTop = H / 2 - T / 2;
+  const int gapBot = H / 2 + T / 2;
+  const int vH = gapTop - T;
+  const int sx[7] = { T,       W - T,  W - T,  T,       0,      0,      T       };
+  const int sy[7] = { 0,       T,      gapBot, H - T,   gapBot, T,      gapTop  };
+  const int sw[7] = { W - 2*T, T,      T,      W - 2*T, T,      T,      W - 2*T };
+  const int sh[7] = { T,       vH,     vH,     T,       vH,     vH,     T       };
+  int digit = ch - '0';
+  for (int s = 0; s < 7; s++) {
+    bool on = (digit >= 0 && digit <= 9) && SEVEN_SEG[digit][s];
+    drawNeonSegment(cellX + sx[s], NEON_ROW_MARGIN + sy[s], sw[s], sh[s], on);
+  }
+}
+
+void drawNeonDigitRow(const char *buf, bool colonVisible) {
+  neonDigitSpr.fillSprite(COL_BG);
+  int x = NEON_ROW_MARGIN;
+  int idx = 0;
+  for (int pair = 0; pair < 3; pair++) {
+    for (int k = 0; k < 2; k++) {
+      drawNeonDigit(x, buf[idx++]);
+      x += NEON_DW;
+      if (k == 0) x += NEON_DIGIT_GAP;
+    }
+    if (pair < 2) {
+      int cxm = x + NEON_COLON_W / 2;
+      int cy = NEON_ROW_MARGIN + NEON_DH / 2;
+      if (colonVisible) {
+        neonDigitSpr.fillSmoothCircle(cxm, cy - 13, 3, COL_NEON_ON, COL_BG);
+        neonDigitSpr.fillSmoothCircle(cxm, cy + 13, 3, COL_NEON_ON, COL_BG);
+      }
+      x += NEON_COLON_W;
+    }
+  }
+  neonDigitSpr.pushSprite(neonRowX, neonRowY);
+}
+
+// Manual pgm_read_word loop rather than pushImage() straight from PROGMEM -
+// matches drawPhotoDigitToSprite()'s own approach above for the same kind
+// of baked RGB565 asset.
+void drawNeonAnimFrame() {
+  const uint16_t *src = NEON_ANIM_FRAMES[neonAnimFrame];
+  for (int y = 0; y < NEON_ANIM_SIZE; y++) {
+    for (int x = 0; x < NEON_ANIM_SIZE; x++) {
+      neonAnimSpr.drawPixel(x, y, pgm_read_word(&src[y * NEON_ANIM_SIZE + x]));
+    }
+  }
+  neonAnimSpr.pushSprite(neonAnimX, neonAnimY);
+}
+
 void drawDigitCell(int col, char ch) {
   if (currentFace == FACE_SEVEN_SEG) {
     drawSevenSegDigitCell(col, ch);
@@ -702,6 +819,8 @@ void begin() {
   doySpr.setColorDepth(16);
   wifiSpr.setColorDepth(16);
   photoDigitSpr.setColorDepth(16);
+  neonDigitSpr.setColorDepth(16);
+  neonAnimSpr.setColorDepth(16);
 
   digitSpr.createSprite(CELL_DIGIT_W, CLOCK_H);
   colonSpr.createSprite(CELL_COLON_W, CLOCK_H);
@@ -710,6 +829,13 @@ void begin() {
   weekSpr.createSprite(B_WEEK.w, TOPBAR_H);
   doySpr.createSprite(B_DOY.w, TOPBAR_H);
   wifiSpr.createSprite(B_WIFI.w, TOPBAR_H);
+
+  neonDigitSpr.createSprite(NEON_ROW_W + 2 * NEON_ROW_MARGIN, NEON_DH + 2 * NEON_ROW_MARGIN);
+  neonAnimSpr.createSprite(NEON_ANIM_SIZE, NEON_ANIM_SIZE);
+  neonRowX = 6;
+  neonRowY = CLOCK_TOP + (CLOCK_H - (NEON_DH + 2 * NEON_ROW_MARGIN)) / 2;
+  neonAnimX = neonRowX + (NEON_ROW_W + 2 * NEON_ROW_MARGIN) + 8;
+  neonAnimY = CLOCK_TOP + (CLOCK_H - NEON_ANIM_SIZE) / 2;
 
   for (int d = 0; d <= 9; d++) {
     photoSlotW = max(photoSlotW, photoScaledWidth(BOTANICAL_DIGITS, d));
@@ -857,6 +983,24 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
     if (changed) {
       drawPhotoRow(buf, colonVisible);
       for (int i = 0; i < 6; i++) lastDigit[i] = buf[i];
+    }
+  } else if (currentFace == FACE_NEON) {
+    // Same "whole row, only on change" digit redraw Botanical/Silver use
+    // above, plus a second, independent redraw for the astronaut - it
+    // advances every ~120ms regardless of whether the digits changed.
+    bool changed = (colonVisible != lastColonVisible);
+    for (int i = 0; i < 6; i++) {
+      if (lastDigit[i] != buf[i]) changed = true;
+    }
+    if (changed) {
+      drawNeonDigitRow(buf, colonVisible);
+      for (int i = 0; i < 6; i++) lastDigit[i] = buf[i];
+    }
+    unsigned long nowMs = millis();
+    if (nowMs - neonAnimLastMs >= NEON_ANIM_FRAME_MS) {
+      neonAnimLastMs = nowMs;
+      neonAnimFrame = (neonAnimFrame + 1) % NEON_ANIM_FRAME_COUNT;
+      drawNeonAnimFrame();
     }
   } else {
     const char *src = buf;
