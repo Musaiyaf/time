@@ -2,7 +2,6 @@
 #include "config.h"
 #include "sd_card.h"
 #include "video_player.h"
-#include "PhotoDigits.h"
 #include "BotanicalDigits.h"
 #include "SilverDigits.h"
 #include <TFT_eSPI.h>
@@ -27,7 +26,7 @@ TFT_eSprite mdaySpr(&tft);
 TFT_eSprite weekSpr(&tft);
 TFT_eSprite doySpr(&tft);
 TFT_eSprite wifiSpr(&tft);
-TFT_eSprite photoDigitSpr(&tft); // Photo face only - see drawPhotoRow()
+TFT_eSprite photoDigitSpr(&tft); // Botanical/Silver faces - see drawPhotoRow()
 
 // ---- Theme colours (approximating the reference photo) -------------
 const uint16_t COL_BG        = TFT_BLACK;
@@ -86,19 +85,6 @@ const BadgeTheme THEME_LED = {
   tft.color565(28, 8, 6),   tft.color565(255, 70, 45),    // wifi
 };
 
-// Photo face: plain white badge boxes, matching the white background its
-// mixed-style digits need (several of them are themselves black/dark-
-// brown/dark-navy - see that face's own comment - so it isn't on the
-// usual black backdrop the other faces share).
-const BadgeTheme THEME_PHOTO = {
-  TFT_WHITE, TFT_BLACK,   // year
-  TFT_WHITE, TFT_BLACK,   // month
-  TFT_WHITE, TFT_BLACK,   // day
-  TFT_WHITE, TFT_BLACK,   // week
-  TFT_WHITE, TFT_BLACK,   // day-of-year
-  TFT_WHITE, TFT_BLACK,   // wifi
-};
-
 // Botanical face: the deep vine-green sampled from its digits' own
 // illuminated-manuscript artwork, used as both the digit-area background
 // and the badge fill - the same "background colour matches the badges"
@@ -133,28 +119,6 @@ const BadgeTheme THEME_SILVER = {
   COL_SILVER_BADGE, COL_SILVER_TEXT,   // week
   COL_SILVER_BADGE, COL_SILVER_TEXT,   // day-of-year
   COL_SILVER_BADGE, COL_SILVER_TEXT,   // wifi
-};
-
-// Flip Clock face: split-flap "departure board" cards - dark charcoal
-// cards on a near-black page, bright white digits, matching a real split-
-// flap board (and this codebase's own repeated preference for a dark
-// backdrop with bright numerals - Silver, Rainbow, LED all do the same).
-// Badges match the page colour, same "background matches the badges"
-// pattern Botanical's green and Photo's white already use.
-const uint16_t COL_FLIP_BG     = tft.color565(15, 15, 17);   // page behind the cards
-const uint16_t COL_FLIP_CARD   = tft.color565(48, 50, 56);   // card face - clearly lighter than the page
-const uint16_t COL_FLIP_TEXT   = TFT_WHITE;                  // digit ink, at rest
-const uint16_t COL_FLIP_SHADOW = tft.color565(90, 92, 98);   // flap tint near edge-on
-const uint16_t COL_FLIP_HINGE  = tft.color565(120, 123, 130); // seam highlight line
-const uint16_t COL_FLIP_PIN    = tft.color565(150, 153, 160); // hinge pin dots
-const uint16_t COL_FLIP_BADGE_TXT = tft.color565(225, 227, 232);
-const BadgeTheme THEME_FLIP = {
-  COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // year
-  COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // month
-  COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // day
-  COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // week
-  COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // day-of-year
-  COL_FLIP_BG, COL_FLIP_BADGE_TXT,   // wifi
 };
 
 // ---- Layout -----------------------------------------------------------
@@ -215,20 +179,16 @@ enum ClockFaceId {
   FACE_RAINBOW_GRID = 0,
   FACE_SEVEN_SEG = 1,
   FACE_VIDEO = 2,
-  FACE_PHOTO = 3,
-  FACE_BOTANICAL = 4,
-  FACE_SILVER = 5,
-  FACE_FLIP = 6,
-  FACE_COUNT = 7
+  FACE_BOTANICAL = 3,
+  FACE_SILVER = 4,
+  FACE_COUNT = 5
 };
 int currentFace = FACE_RAINBOW_GRID;
 
 const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_SEVEN_SEG) return THEME_LED;
-  if (currentFace == FACE_PHOTO) return THEME_PHOTO;
   if (currentFace == FACE_BOTANICAL) return THEME_BOTANICAL;
   if (currentFace == FACE_SILVER) return THEME_SILVER;
-  if (currentFace == FACE_FLIP) return THEME_FLIP;
   return THEME_RAINBOW;
 }
 
@@ -242,11 +202,13 @@ bool badgeGlossActive() { return currentFace == FACE_SILVER; }
 char lastDigit[CELL_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0};
 bool gridDrawn = false;
 
-// Digit transition animations - Rainbow Grid (rolling) and Flip Clock
-// (split-flap), each with their own timing but sharing this one per-cell
-// state and the same start/finish bookkeeping in update() below (see the
-// FACE_RAINBOW_GRID/FACE_FLIP branch there). Every other face still does
-// the old instant swap.
+// Rainbow Grid only: rolling digit transition, like a train of digits on
+// a vertical rail track - the old digit slides up and off the top of the
+// cell while the new one rises up from below to take its place, rather
+// than the instant swap every other face still uses. Modelled as a
+// single strip holding both digits (old at the cell's normal centre, new
+// one full cell-height below it) that slides upward by `progress` of the
+// cell height - see drawRainbowGridDigitCellAnimated().
 struct DigitAnim {
   char fromCh = 0;
   char toCh = 0;
@@ -254,15 +216,7 @@ struct DigitAnim {
   bool active = false;
 };
 DigitAnim digitAnims[CELL_COUNT];
-// Rainbow Grid: like a train of digits on a vertical rail track - the old
-// digit slides up and off the top of the cell while the new one rises up
-// from below to take its place. Modelled as a single strip holding both
-// digits (old at the cell's normal centre, new one full cell-height below
-// it) that slides upward by `progress` of the cell height - see
-// drawRainbowGridDigitCellAnimated().
 const unsigned long DIGIT_ANIM_MS = 220;
-// Flip Clock: a real split-flap card - see drawFlipDigitCellAnimated().
-const unsigned long FLIP_ANIM_MS = 380;
 String lastDateStr = "\x01";       // year badge cache
 String lastMonthDayStr = "\x01";   // month/day badge cache
 String lastWeekStr = "\x01";
@@ -398,123 +352,6 @@ void drawRainbowGridDigitCellAnimated(int col, char fromCh, char toCh, float pro
   digitSpr.pushSprite(x, CLOCK_TOP);
 }
 
-// ---- Flip Clock face -----------------------------------------------------
-// A split-flap "departure board" card per digit: a dark card face split in
-// two by a hinge line, on a near-black page. There's no true 3D rotation
-// on a 2D panel, so the flip is approximated the way most software
-// recreations do it - a vertical crop rather than a true perspective
-// squish - but anchored at the hinge so it still reads as a card folding
-// there rather than a curtain closing:
-//   - the TOP half's background is always the settling-in NEW digit
-//     (like the real board's fixed upper leaf, already updated);
-//   - the BOTTOM half's background is always the outgoing OLD digit
-//     (not yet replaced);
-//   - a single flap animates in two phases, hinged at the seam the whole
-//     time: phase 1 (0-50%) collapses the OLD top half down into the
-//     hinge, uncovering the new top background as it shrinks; phase 2
-//     (50-100%) grows a NEW bottom half back out of the hinge, covering
-//     the old bottom background as it expands. The flap's own colour
-//     tints from white towards COL_FLIP_SHADOW as it nears the hinge -
-//     standing in for the edge-on, side-lit look a real flap gets
-//     mid-rotation, since a flat crop with no shading at all read as
-//     too flat/mechanical next to a real split-flap board's photos.
-// Horizontal clipping is left at the full cell width (proven safe for
-// this font - see the CELL_DIGIT_W comment above) even though the card
-// itself is drawn narrower, so the widest glyphs never get clipped.
-//
-// The card's height is sized to the font's own ink, not stretched to
-// fill CLOCK_H: FredokaDigits87's VLW header gives ascent=87, descent=0,
-// so a digit is only ~87px of actual stroke tall. Splitting a cell-sized
-// (140px) card in half gave each half a 67px window for ~44px of visible
-// glyph - the other ~23px of "empty card" above the top half and below
-// the bottom half read as plain black on hardware once the card and page
-// colours are this close, since there's nothing drawn there to show the
-// card fill is a slightly different shade at all. FLIP_CARD_H below is
-// close to that real ink height instead, with the leftover cell space
-// becoming visible page margin around the card rather than dead space
-// inside it.
-const int FLIP_MARGIN_X = 2;  // gap between adjacent digit cards
-const int FLIP_CARD_H = 108;  // ~87px glyph + comfortable padding, not all of CLOCK_H
-const int FLIP_MARGIN_Y = (CLOCK_H - FLIP_CARD_H) / 2; // centres the card in the cell
-const int FLIP_PIN_R = 1;     // hinge pin dot radius
-
-void drawFlipHingePins(int cardX, int cardW, int hingeY) {
-  digitSpr.fillCircle(cardX + 1, hingeY, FLIP_PIN_R, COL_FLIP_PIN);
-  digitSpr.fillCircle(cardX + cardW - 2, hingeY, FLIP_PIN_R, COL_FLIP_PIN);
-}
-
-void drawFlipDigitCell(int col, char ch) {
-  int x = colX(col);
-  int cardX = FLIP_MARGIN_X, cardY = FLIP_MARGIN_Y;
-  int cardW = CELL_DIGIT_W - 2 * FLIP_MARGIN_X;
-  int cardH = FLIP_CARD_H;
-  int hingeY = cardY + cardH / 2;
-
-  digitSpr.fillSprite(COL_FLIP_BG);
-  digitSpr.fillRoundRect(cardX, cardY, cardW, cardH, 4, COL_FLIP_CARD);
-  digitSpr.setTextDatum(MC_DATUM);
-  digitSpr.setTextColor(COL_FLIP_TEXT, COL_FLIP_CARD);
-  digitSpr.drawString(String(ch), CELL_DIGIT_W / 2, hingeY);
-  digitSpr.fillRect(cardX, hingeY - 1, cardW, 2, COL_FLIP_HINGE);
-  drawFlipHingePins(cardX, cardW, hingeY);
-  digitSpr.pushSprite(x, CLOCK_TOP);
-}
-
-void drawFlipDigitCellAnimated(int col, char fromCh, char toCh, float progress) {
-  int x = colX(col);
-  int cardX = FLIP_MARGIN_X, cardY = FLIP_MARGIN_Y;
-  int cardW = CELL_DIGIT_W - 2 * FLIP_MARGIN_X;
-  int cardH = FLIP_CARD_H;
-  int halfH = cardH / 2;
-  int halfH2 = cardH - halfH;
-  int hingeY = cardY + halfH;
-  int textCy = cardY + cardH / 2; // true full-card centre every glyph is drawn around
-
-  digitSpr.fillSprite(COL_FLIP_BG);
-  digitSpr.fillRoundRect(cardX, cardY, cardW, cardH, 4, COL_FLIP_CARD);
-  digitSpr.setTextDatum(MC_DATUM);
-  digitSpr.setTextColor(COL_FLIP_TEXT, COL_FLIP_CARD);
-
-  // Resting backgrounds: top has already settled on the new digit, bottom
-  // hasn't changed yet - only the flap in between is still moving.
-  digitSpr.setViewport(0, cardY, CELL_DIGIT_W, halfH);
-  digitSpr.drawString(String(toCh), CELL_DIGIT_W / 2, textCy);
-  digitSpr.resetViewport();
-
-  digitSpr.setViewport(0, hingeY, CELL_DIGIT_W, halfH2);
-  digitSpr.drawString(String(fromCh), CELL_DIGIT_W / 2, textCy);
-  digitSpr.resetViewport();
-
-  bool phase1 = progress < 0.5f;
-  float p = phase1 ? (progress / 0.5f) : ((progress - 0.5f) / 0.5f);
-  if (phase1) {
-    int flapH = (int)roundf(halfH * (1.0f - p));
-    if (flapH > 0) {
-      // Shrinking towards the hinge - the smaller it gets, the more it
-      // reads as edge-on, so tint it further towards shadow as flapH
-      // drops (p towards 1, i.e. the same fraction the height shrank by).
-      digitSpr.setTextColor(blend565(COL_FLIP_TEXT, COL_FLIP_SHADOW, p), COL_FLIP_CARD);
-      digitSpr.setViewport(0, hingeY - flapH, CELL_DIGIT_W, flapH);
-      digitSpr.drawString(String(fromCh), CELL_DIGIT_W / 2, textCy);
-      digitSpr.resetViewport();
-    }
-  } else {
-    int flapH = (int)roundf(halfH2 * p);
-    if (flapH > 0) {
-      // Growing back out of the hinge - starts edge-on (shadow-tinted)
-      // and brightens towards white as it swings down to rest.
-      digitSpr.setTextColor(blend565(COL_FLIP_TEXT, COL_FLIP_SHADOW, 1.0f - p), COL_FLIP_CARD);
-      digitSpr.setViewport(0, hingeY, CELL_DIGIT_W, flapH);
-      digitSpr.drawString(String(toCh), CELL_DIGIT_W / 2, textCy);
-      digitSpr.resetViewport();
-    }
-  }
-
-  digitSpr.fillRect(cardX, hingeY - 1, cardW, 2, COL_FLIP_HINGE);
-  drawFlipHingePins(cardX, cardW, hingeY);
-  digitSpr.pushSprite(x, CLOCK_TOP);
-}
-
 // ---- Retro LED (7-segment) face -----------------------------------------
 // Classic digital-alarm-clock look: bright red segments on black, plus a
 // faint "ghost" of the unlit segments (like a real LED/LCD 7-segment
@@ -584,10 +421,7 @@ void ensureDigitFont() {
 }
 
 // ---- Photo faces --------------------------------------------------------
-// Three faces built from real digit images (RGB565), not a font: Photo
-// (PhotoDigits.h, background removed, a font-sampler style - a different
-// typeface/colour per digit value, several of them dark, so it needs a
-// light background or half of them are near-invisible), Botanical
+// Two faces built from real digit images (RGB565), not a font: Botanical
 // (BotanicalDigits.h, illuminated-manuscript digits - their own black
 // panel is part of the artwork, kept as-is rather than background-
 // removed), and Silver (SilverDigits.h, chrome-gradient numerals with a
@@ -596,8 +430,8 @@ void ensureDigitFont() {
 // these can't reuse the fixed CELL_DIGIT_W column grid: laid out edge to
 // edge at their native aspect ratio, a full row would run well past this
 // 320px screen. Every digit is instead scaled to a single fixed-width slot
-// (photoSlotW, computed below as the widest digit across all three sets
-// at PHOTO_H tall, so one shared size/layout serves all of them) so the
+// (photoSlotW, computed below as the widest digit across both sets at
+// PHOTO_H tall, so one shared size/layout serves either face) so the
 // whole row's width - and thus its centred x position - never changes
 // between redraws; without that, the row would visibly jump sideways
 // every second as narrower/wider digits rotated through.
@@ -606,8 +440,8 @@ void ensureDigitFont() {
 // any possible time, that caps PHOTO_H well below the cell height (140px)
 // - it's bounded by the digits' own aspect ratio, not by how tight the
 // gaps/colon widths get (tried several combinations; none clear ~53px,
-// Botanical's "7" at ~0.91 being the tightest of the three sets' worst
-// case - Silver's widest, "4" at ~0.81, doesn't change that bound).
+// Botanical's "7" at ~0.91 being the tighter of the two sets' worst case -
+// Silver's widest, "4" at ~0.81, doesn't change that bound).
 const int PHOTO_GAP = 1;       // gap between adjacent digit/colon slots
 const int PHOTO_COLON_W = 7;
 const int PHOTO_H = 53;
@@ -615,28 +449,20 @@ int photoSlotW = 0;       // widest scaled digit (either set) - set in begin()
 int photoRowStartX = 0;   // fixed row x so it never shifts between redraws
 int photoRowY = 0;
 
-// Which digit set/background/colon colour the current face uses. Photo's
-// mixed set includes several dark digits (black/dark-brown/dark-navy)
-// that would be near-invisible on black, so it gets a white background
-// and dark colon dots; Botanical's digits already carry their own black
-// panel, so they sit on the same deep green as their badges. Silver's
-// digits carry their own black backdrop too (see SilverDigits.h), so like
-// Botanical they sit on a matching background rather than white - here
-// that's plain black, with light colon dots to read against it.
+// Which digit set/background/colon colour the current face uses.
+// Botanical's digits already carry their own black panel, so they sit on
+// the same deep green as their badges. Silver's digits carry their own
+// black backdrop too (see SilverDigits.h), so like Botanical they sit on
+// a matching background rather than white - here that's plain black,
+// with light colon dots to read against it.
 const PhotoDigit *activePhotoSet() {
-  if (currentFace == FACE_BOTANICAL) return BOTANICAL_DIGITS;
-  if (currentFace == FACE_SILVER) return SILVER_DIGITS;
-  return PHOTO_DIGITS;
+  return (currentFace == FACE_SILVER) ? SILVER_DIGITS : BOTANICAL_DIGITS;
 }
 uint16_t activePhotoBg() {
-  if (currentFace == FACE_BOTANICAL) return COL_BOTANICAL_BG;
-  if (currentFace == FACE_SILVER) return COL_BG;
-  return TFT_WHITE;
+  return (currentFace == FACE_SILVER) ? COL_BG : COL_BOTANICAL_BG;
 }
 uint16_t activePhotoColonColor() {
-  if (currentFace == FACE_BOTANICAL) return COL_BOTANICAL_TEXT;
-  if (currentFace == FACE_SILVER) return COL_SILVER_TEXT;
-  return TFT_BLACK;
+  return (currentFace == FACE_SILVER) ? COL_SILVER_TEXT : COL_BOTANICAL_TEXT;
 }
 
 // Scaled width of digit d (0-9) in the given set at a fixed height of
@@ -713,8 +539,6 @@ void drawPhotoRow(const char *buf, bool colonVisible) {
 void drawDigitCell(int col, char ch) {
   if (currentFace == FACE_SEVEN_SEG) {
     drawSevenSegDigitCell(col, ch);
-  } else if (currentFace == FACE_FLIP) {
-    drawFlipDigitCell(col, ch);
   } else {
     drawRainbowGridDigitCell(col, ch);
   }
@@ -722,15 +546,14 @@ void drawDigitCell(int col, char ch) {
 
 void drawColonCell(int col, bool visible) {
   int x = colX(col);
-  uint16_t bg = (currentFace == FACE_FLIP) ? COL_FLIP_BG : COL_BG;
-  colonSpr.fillSprite(bg);
+  colonSpr.fillSprite(COL_BG);
   if (visible) {
     int cx = CELL_COLON_W / 2;
     int cy = CLOCK_H / 2;
     int r = max(3, CELL_COLON_W / 6);
     int gap = CLOCK_H / 6;
-    colonSpr.fillSmoothCircle(cx, cy - gap, r, COL_COLON, bg);
-    colonSpr.fillSmoothCircle(cx, cy + gap, r, COL_COLON, bg);
+    colonSpr.fillSmoothCircle(cx, cy - gap, r, COL_COLON, COL_BG);
+    colonSpr.fillSmoothCircle(cx, cy + gap, r, COL_COLON, COL_BG);
   }
   colonSpr.pushSprite(x, CLOCK_TOP);
 }
@@ -889,7 +712,6 @@ void begin() {
   wifiSpr.createSprite(B_WIFI.w, TOPBAR_H);
 
   for (int d = 0; d <= 9; d++) {
-    photoSlotW = max(photoSlotW, photoScaledWidth(PHOTO_DIGITS, d));
     photoSlotW = max(photoSlotW, photoScaledWidth(BOTANICAL_DIGITS, d));
     photoSlotW = max(photoSlotW, photoScaledWidth(SILVER_DIGITS, d));
   }
@@ -1022,7 +844,7 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
       }
       tft.setFreeFont(nullptr);
     }
-  } else if (currentFace == FACE_PHOTO || currentFace == FACE_BOTANICAL || currentFace == FACE_SILVER) {
+  } else if (currentFace == FACE_BOTANICAL || currentFace == FACE_SILVER) {
     // Every slot's x position is fixed (see drawPhotoRow()), so there's
     // nothing to diff per-digit - just redraw the whole row when anything
     // in it changed. lastDigit[0..5] doubles as this face's HHMMSS cache
@@ -1047,12 +869,11 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
         continue;
       }
       char ch = src[srcIdx++];
-      bool animatedFace = (currentFace == FACE_RAINBOW_GRID || currentFace == FACE_FLIP);
-      if (animatedFace) {
+      if (currentFace == FACE_RAINBOW_GRID) {
         if (lastDigit[col] != ch) {
           if (lastDigit[col] == 0) {
             // First draw for this cell (just reset/switched to) - no
-            // previous digit to animate from, so draw it directly.
+            // previous digit to roll away from, so draw it directly.
             drawDigitCell(col, ch);
           } else {
             digitAnims[col] = {lastDigit[col], ch, millis(), true};
@@ -1060,17 +881,13 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
           lastDigit[col] = ch;
         }
         if (digitAnims[col].active) {
-          unsigned long durMs = (currentFace == FACE_FLIP) ? FLIP_ANIM_MS : DIGIT_ANIM_MS;
           unsigned long elapsed = millis() - digitAnims[col].startMs;
-          if (elapsed >= durMs) {
+          if (elapsed >= DIGIT_ANIM_MS) {
             digitAnims[col].active = false;
             drawDigitCell(col, digitAnims[col].toCh);
-          } else if (currentFace == FACE_FLIP) {
-            drawFlipDigitCellAnimated(col, digitAnims[col].fromCh, digitAnims[col].toCh,
-                                       (float)elapsed / durMs);
           } else {
             drawRainbowGridDigitCellAnimated(col, digitAnims[col].fromCh, digitAnims[col].toCh,
-                                              (float)elapsed / durMs);
+                                              (float)elapsed / DIGIT_ANIM_MS);
           }
         }
       } else if (lastDigit[col] != ch) {

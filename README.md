@@ -235,31 +235,23 @@ from its row, no submenu needed - shows its current ON/OFF state), and
 **About**.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between seven clock faces: the rainbow grid face, where each digit
+cycle between five clock faces: the rainbow grid face, where each digit
 rolls to its next value like a train on a vertical rail track - the old
 digit slides up and off the top of its cell while the new one rises from
 below to take its place, rather than the instant swap every other face
 still uses; a retro LED face (classic digital-alarm-clock style 7-segment
 digits, bright red on black, with a faint ghost of the unlit segments);
 [**Video**](#video-wallpaper), which loops a short video clip fullscreen;
-[**Photo**](#photo-face), a
-font-sampler face - each digit *value* 0-9 is its own real photographed
-typeface and colour, not one consistent font - on a plain white
-background (several of the digits are themselves too dark to read on
-the black background every other face uses), with a matching white
-status bar; [**Botanical**](#botanical-face), illuminated-manuscript
+[**Botanical**](#botanical-face), illuminated-manuscript
 digits - an orange/red letterform on its own black panel, bordered with
 green vines and small yellow flowers - on a deep vine-green background
 sampled from that same artwork, with a matching green status bar and
 cream text; and [**Silver**](#silver-face), chrome-gradient numerals with
 a soft glow on a plain black background, with a matching gunmetal status
 bar that gets the same glossy top-edge highlight as the digits
-themselves; and [**Flip Clock**](#flip-clock-face), a split-flap
-"departure board" face where each digit is an actual two-part card that
-flips to its next value, on a near-black page matching the status bar.
-The status bar re-skins to match whichever face is active (or hides
-entirely on Video). The choice isn't saved across a power cycle - it
-always starts on the rainbow grid face.
+themselves. The status bar re-skins to match whichever face is active
+(or hides entirely on Video). The choice isn't saved across a power
+cycle - it always starts on the rainbow grid face.
 
 ### Video Wallpaper
 
@@ -286,28 +278,16 @@ keeps looping until you upload a different video or remove it (the same
 card's **Remove saved video** button). No SD card, or nothing uploaded
 yet, and the face just shows a short message instead of a blank screen.
 
-### Photo Face
-
-A font-sampler face built from real photographed digits rather than one
-consistent typeface: each digit *value* 0-9 keeps its own distinct font
-and colour (a serif "0", a bold "1", a script "2", and so on), unlike
-every other face where every digit shares the same font. Several of those
-digits are themselves black, dark brown, or dark navy - too close to
-invisible on the black background every other face uses - so Photo runs
-on a plain white background instead, with a matching white status bar
-(`THEME_PHOTO` in `clock_display.cpp`), rather than re-skinning to a dark
-badge palette like the other faces.
-
 ### Botanical Face
 
 An illuminated-manuscript style face: each digit is its own orange/red
 letterform on a black panel, bordered with green vines and small yellow
 flowers, in the manner of a historiated initial from an old manuscript
-page. Unlike Photo, each digit's black panel is kept as part of the
-artwork rather than removed - what changes per face is the *background
-behind and around* the panels and the status bar, both set to a deep
-vine-green sampled straight from the digits' own leaves (`COL_BOTANICAL_BG`
-in `clock_display.cpp`), with cream badge text sampled from the source
+page. Each digit's black panel is kept as part of the artwork rather
+than removed - what changes per face is the *background behind and
+around* the panels and the status bar, both set to a deep vine-green
+sampled straight from the digits' own leaves (`COL_BOTANICAL_BG` in
+`clock_display.cpp`), with cream badge text sampled from the source
 art's own parchment-page background.
 
 ### Silver Face
@@ -321,26 +301,6 @@ gunmetal fill (`COL_SILVER_BADGE`) rather than the usual per-face flat
 colour, plus a glossy highlight across its top edge - the same brightening
 pass (`applyDigitGloss()`) the rainbow grid face already uses on its own
 digit cells, reused here so the badges visibly "shine" like the digits do.
-
-### Flip Clock Face
-
-A split-flap "departure board" face: each digit is a two-part dark card
-(matching the status bar to that same near-black page colour) with a
-hinge line - and two small pin dots at its ends - through the middle,
-white digits, and changing to its next value is an actual flip rather
-than the instant swap most faces use. There's no true 3D rotation on a
-2D panel, so it's approximated the way most software recreations do it -
-a vertical crop anchored at the hinge rather than a perspective squish -
-in two phases (`drawFlipDigitCellAnimated()` in `clock_display.cpp`):
-the old top half collapses down into the hinge, uncovering the new
-digit's top half underneath as it shrinks; then a new bottom half grows
-back out of the hinge, covering the old digit's bottom half as it
-expands. The flap itself tints from white towards a mid-grey as it
-nears the hinge and back to white as it swings out, standing in for the
-shading a real flap picks up edge-on - without it, the crop alone read
-as too flat next to a real split-flap board. Reuses the same digit font
-as the rainbow grid face - no extra flash cost - and the same per-cell
-grid every face but Photo/Botanical/Silver already shares.
 
 ### Weather
 
@@ -504,7 +464,7 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   font, but a self-service option that doesn't need a TTF at all.
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
   per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`)
-  based on `currentFace` - Video, Photo, Botanical and Silver bypass this
+  based on `currentFace` - Video, Botanical and Silver bypass this
   dispatcher entirely and redraw their own whole row each tick
   (`VideoPlayer::draw()`, `drawPhotoRow()`), since none of them fit the
   fixed per-cell column grid the other two share. `ClockDisplay::nextFace()`
