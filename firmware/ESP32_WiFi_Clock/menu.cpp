@@ -164,15 +164,28 @@ const char *const MAIN_LABELS[MAIN_TILE_COUNT] = {"SD Card", "Settings", "Back"}
 const uint16_t MAIN_COLORS[MAIN_TILE_COUNT] = {COL_ICON_SD, COL_SETTINGS_ACCENT, COL_ICON_BACK};
 int mainIndex = 0;
 
+// FEATURE_CUSTOM_FACE off (see config.h) drops "Custom Face" from this
+// list entirely rather than showing a row for a face you can't reach -
+// nextFace()/prevFace() already exclude it from the LEFT/RIGHT cycle
+// when the flag's off (see clock_display.cpp's FACE_COUNT).
+#if FEATURE_CUSTOM_FACE
 const int SETTINGS_COUNT = 8;
 const char *const SETTINGS_LABELS[SETTINGS_COUNT] = {"WiFi", "Time Zone", "Date/Time", "Weather City",
                                                        "Alarm", "Button Sound", "Custom Face", "About"};
 const uint16_t SETTINGS_COLORS[SETTINGS_COUNT] = {COL_ICON_WIFI, COL_ICON_TZ, COL_ICON_DATETIME,
                                                    COL_ICON_WEATHER, COL_ICON_ALARM, COL_ICON_BUZZER,
                                                    COL_ICON_CUSTOM_FACE, COL_SETTINGS_ACCENT};
+const int SETTINGS_IDX_CUSTOM_FACE = 6;
+#else
+const int SETTINGS_COUNT = 7;
+const char *const SETTINGS_LABELS[SETTINGS_COUNT] = {"WiFi", "Time Zone", "Date/Time", "Weather City",
+                                                       "Alarm", "Button Sound", "About"};
+const uint16_t SETTINGS_COLORS[SETTINGS_COUNT] = {COL_ICON_WIFI, COL_ICON_TZ, COL_ICON_DATETIME,
+                                                   COL_ICON_WEATHER, COL_ICON_ALARM, COL_ICON_BUZZER,
+                                                   COL_SETTINGS_ACCENT};
+#endif
 const int SETTINGS_IDX_ALARM = 4;
 const int SETTINGS_IDX_BUZZER = 5;
-const int SETTINGS_IDX_CUSTOM_FACE = 6;
 int settingsIndex = 0;
 
 // Shared by every scrollable list screen (Settings, the SD card browser,
@@ -373,6 +386,7 @@ void drawSettingsList() {
     } else if (i == SETTINGS_IDX_BUZZER) {
       tft.setTextDatum(MR_DATUM);
       tft.drawString(Buzzer::isEnabled() ? "ON" : "OFF", W - 8, y + LIST_ROW_H / 2);
+#if FEATURE_CUSTOM_FACE
     } else if (i == SETTINGS_IDX_CUSTOM_FACE) {
       tft.setTextDatum(MR_DATUM);
       String status = CustomFace::hasActive() ? CustomFace::activeName() : "None";
@@ -380,6 +394,7 @@ void drawSettingsList() {
       // this row's own width is generous but not unlimited.
       if (status.length() > 14) status = status.substring(0, 11) + "...";
       tft.drawString(status, W - 8, y + LIST_ROW_H / 2);
+#endif
     }
   }
 
@@ -1717,9 +1732,11 @@ bool handle() {
         } else if (settingsIndex == SETTINGS_IDX_BUZZER) {
           Buzzer::setEnabled(!Buzzer::isEnabled()); // toggles in place, no submenu
           dirty = true;
+#if FEATURE_CUSTOM_FACE
         } else if (settingsIndex == SETTINGS_IDX_CUSTOM_FACE) {
           runCustomFacePicker(); // blocking; redraws Settings once it's done
           dirty = true;
+#endif
         } else {
           state = ST_ABOUT;
           dirty = true;

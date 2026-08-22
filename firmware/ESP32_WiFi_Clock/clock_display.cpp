@@ -200,8 +200,17 @@ enum ClockFaceId {
   FACE_BOTANICAL = 3,
   FACE_SILVER = 4,
   FACE_NEON = 5,
-  FACE_CUSTOM = 6,
+  FACE_CUSTOM = 6, // kept numbered even when disabled - see FACE_COUNT below
+#if FEATURE_CUSTOM_FACE
   FACE_COUNT = 7
+#else
+  // Excludes FACE_CUSTOM from nextFace()/prevFace()'s (currentFace+1) %
+  // FACE_COUNT cycling - since it's the highest-numbered face, dropping
+  // the count below it is all that's needed, no renumbering. All of the
+  // face's own rendering code (below, and custom_face.cpp) stays compiled
+  // in either way - only reachability changes.
+  FACE_COUNT = 6
+#endif
 };
 int currentFace = FACE_RAINBOW_GRID;
 

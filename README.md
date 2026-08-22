@@ -235,10 +235,12 @@ on/off time, its row showing that time or "OFF"), **Button Sound**
 click straight from its row, no submenu needed - shows its current
 ON/OFF state), [**Custom Face**](#custom-face) (picks which saved
 `.cface` the Custom clock face shows, or "None" - its row shows the
-active one's name), and **About**.
+active one's name; only appears when that feature is turned on - see
+its own section below), and **About**.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between seven clock faces: the rainbow grid face, where each digit
+cycle between clock faces (six by default, seven with
+[Custom Face](#custom-face) turned on): the rainbow grid face, where each digit
 rolls to its next value like a train on a vertical rail track - the old
 digit slides up and off the top of its cell while the new one rises from
 below to take its place, rather than the instant swap every other face
@@ -252,10 +254,10 @@ sampled from that same artwork, with a matching green status bar and
 cream text; [**Silver**](#silver-face), chrome-gradient numerals with
 a soft glow on a plain black background, with a matching gunmetal status
 bar that gets the same glossy top-edge highlight as the digits
-themselves; [**Neon**](#neon-face), glowing cyan 7-segment digits on
-black with a small looping astronaut animation beside them; and
-[**Custom**](#custom-face), which shows whichever face you've built
-yourself and saved to the SD card (or a "pick one" message if you
+themselves; and [**Neon**](#neon-face), glowing cyan 7-segment digits on
+black with a small looping astronaut animation beside them. Turning on
+[**Custom Face**](#custom-face) adds a seventh: whichever face you've
+built yourself and saved to the SD card (or a "pick one" message if you
 haven't). The status bar re-skins to match whichever face is active (or
 hides entirely on Video). The choice of *which* face is showing isn't
 saved across a power cycle (it always starts on the rainbow grid face) -
@@ -328,6 +330,14 @@ cyan text floating directly on the panel, matching the reference photo
 this face was built from.
 
 ### Custom Face
+
+**Off by default.** This whole feature is gated behind one build-time
+switch - `FEATURE_CUSTOM_FACE` in `config.h` - currently set to `0`.
+All of its code (`custom_face.h/.cpp`, its slice of `clock_display.cpp`,
+the web portal's upload card and routes) stays compiled in either way;
+the flag only controls whether it's wired into the LEFT/RIGHT face cycle
+and the Settings menu. Flip it to `1` and reflash to turn it back on -
+nothing else needs to change.
 
 A clock face built entirely from your own artwork: your own image for
 every digit (0-9) and the colon, each independently sized and positioned

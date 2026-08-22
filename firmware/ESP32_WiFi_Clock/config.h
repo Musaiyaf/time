@@ -1,6 +1,19 @@
 #pragma once
 
 // =====================================================================
+// Feature flags
+//
+// FEATURE_CUSTOM_FACE: the user-designed clock face built from your own
+// digit artwork (see custom_face.h, tools/make_custom_face.html). Set to
+// 0 to pull it out of the running firmware entirely - out of the
+// LEFT/RIGHT face cycle, off the Settings menu, and off the web portal -
+// without deleting any of its code (clock_display.cpp/custom_face.cpp/
+// web_portal.cpp/webpage_html.h all still compile it, just skip wiring it
+// in). Set back to 1 to bring it back with no other changes needed.
+#define FEATURE_CUSTOM_FACE 0
+// =====================================================================
+
+// =====================================================================
 // TFT pin wiring (ESP32-S3-N16R8  <->  1.9" ST7789 320x170 IPS panel)
 //
 // These MUST match TFT_eSPI_Setup/User_Setup.h (used at compile time by
