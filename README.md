@@ -349,20 +349,22 @@ skipped, so no number ever has to be nudged off its ring's radius to dodge
 a collision - which is what makes the scale read as one clean arc rather
 than digits scattered at assorted distances.
 
-**The numbers and the rails are kept in separate bands**, which is worth
-understanding before moving either. A number sits on a rail whenever its
-centre comes within ~8px of one, and at radius `r` that happens at
-`x = DIAL_GX + sqrt(r² - 900)`. The obvious fix - breaking the rail around
-the number - leaves the two rails different lengths and littered with
-floating stubs, and *which* times of day look bad depends on where the
-multiples of 5 happen to fall, so it looks fine in a mockup and wrong on
-the bench. Instead the numbers live at `DIAL_LBL_R_IN` (100), whose
-closest approach to a rail is x=248, and the rails stop at
-`DIAL_PILL_RIGHT` (246) - short of that, always. The rails are then simply
-two unbroken, equal-length bars at every minute of every hour, and they
-still clear the minute digits (which end at x=227) by 19px. The seconds
-ring deliberately carries no numbers for the same reason: a second tier of
-them 11px outside the minute numbers collides with them at most times.
+**The numbers hug the minute** rather than being pushed out clear of the
+rails, because that is what the reference face does - at some minutes one
+of them sits directly underneath the minute digits. The cost is that a
+number does sometimes land on a rail, and the rail breaks around it.
+
+That break is bounded to **one per frame**, which is what keeps it looking
+deliberate instead of like a stray rail. A number's centre comes within
+~8px of a rail when `|DIAL_LBL_R_IN · sin(k · DIAL_STEP_IN)|` falls in
+`[22, 38]`, which at radius 73 is true for `|k| = 3` and `4` and nothing
+else. The numbers shown are the multiples of 5 near the minute, so their
+`k` values are all congruent mod 5 (`k = -(mm mod 5) + 5n`) - and of those
+four colliding values, exactly one is congruent to any given residue. So
+there is at most a single break, in a single rail, splitting it into two
+long pieces. The seconds ring is deliberately left unnumbered: numbering
+it too was what let three breaks land in the two rails at once and leave
+stubs floating between them.
 
 The cap and the rails are drawn to the same 2px band. `drawSmoothArc`'s
 radii are *inclusive*, so `(r, r-1)` covers rows `gy-r … gy-r+1` at the top
