@@ -7,6 +7,7 @@
 #include "tz_database.h"
 #include "sd_card.h"
 #include "buzzer.h"
+#include "alarm.h"
 #include <WiFi.h>
 
 namespace {
@@ -121,6 +122,11 @@ bool blockForOk() {
 uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
   return ((uint16_t)(r & 0xF8) << 8) | ((uint16_t)(g & 0xFC) << 3) | (b >> 3);
 }
+
+// Defined down with the Date/Time setter; forward-declared here so
+// drawSettingsList() (which needs it for the Alarm row's "HH:MM") can
+// come first in the file without reordering either.
+String pad2(int v);
 const uint16_t COL_BG        = 0x0000; // black
 const uint16_t COL_HEADING_BG = rgb565(35, 38, 46);   // neutral dark grey
 const uint16_t COL_HEADING_TXT = rgb565(210, 214, 222);
@@ -139,6 +145,7 @@ const uint16_t COL_ICON_DATETIME = rgb565(140, 255, 150); // mint green
 const uint16_t COL_ICON_SD = rgb565(255, 210, 60);    // gold
 const uint16_t COL_ICON_WEATHER = rgb565(120, 190, 255); // sky blue
 const uint16_t COL_ICON_BUZZER = rgb565(190, 140, 255);  // violet
+const uint16_t COL_ICON_ALARM = rgb565(255, 130, 90);    // warm red-orange
 
 // ---- menu state -------------------------------------------------------
 // CLOCK -> MAIN (3 icon tiles: SD Card, Settings, Back) -> SETTINGS (text
@@ -155,18 +162,20 @@ const char *const MAIN_LABELS[MAIN_TILE_COUNT] = {"SD Card", "Settings", "Back"}
 const uint16_t MAIN_COLORS[MAIN_TILE_COUNT] = {COL_ICON_SD, COL_SETTINGS_ACCENT, COL_ICON_BACK};
 int mainIndex = 0;
 
-const int SETTINGS_COUNT = 6;
+const int SETTINGS_COUNT = 7;
 const char *const SETTINGS_LABELS[SETTINGS_COUNT] = {"WiFi", "Time Zone", "Date/Time", "Weather City",
-                                                       "Button Sound", "About"};
+                                                       "Alarm", "Button Sound", "About"};
 const uint16_t SETTINGS_COLORS[SETTINGS_COUNT] = {COL_ICON_WIFI, COL_ICON_TZ, COL_ICON_DATETIME,
-                                                   COL_ICON_WEATHER, COL_ICON_BUZZER, COL_SETTINGS_ACCENT};
-const int SETTINGS_IDX_BUZZER = 4;
+                                                   COL_ICON_WEATHER, COL_ICON_ALARM, COL_ICON_BUZZER,
+                                                   COL_SETTINGS_ACCENT};
+const int SETTINGS_IDX_ALARM = 4;
+const int SETTINGS_IDX_BUZZER = 5;
 int settingsIndex = 0;
 
 // Shared by every scrollable list screen (Settings, the SD card browser) -
 // a coloured heading bar with a position indicator, then full-width rows
 // with the selected one drawn as a solid highlight pill.
-const int LIST_ROW_H = 19;
+const int LIST_ROW_H = 17; // 7 Settings rows now that Alarm is one of them
 const int LIST_TOP = 28;
 
 int continentIndex = 0;
@@ -340,7 +349,11 @@ void drawSettingsList() {
     tft.setTextDatum(ML_DATUM);
     tft.drawString(SETTINGS_LABELS[i], 8, y + LIST_ROW_H / 2);
 
-    if (i == SETTINGS_IDX_BUZZER) {
+    if (i == SETTINGS_IDX_ALARM) {
+      tft.setTextDatum(MR_DATUM);
+      String status = Alarm::isEnabled() ? (pad2(Alarm::hour()) + ":" + pad2(Alarm::minute())) : "OFF";
+      tft.drawString(status, W - 8, y + LIST_ROW_H / 2);
+    } else if (i == SETTINGS_IDX_BUZZER) {
       tft.setTextDatum(MR_DATUM);
       tft.drawString(Buzzer::isEnabled() ? "ON" : "OFF", W - 8, y + LIST_ROW_H / 2);
     }
@@ -582,6 +595,61 @@ void runDateTimeSetter() {
                         "  " + pad2(hour) + ":" + pad2(minute);
       drawScreen(String("SET ") + FIELD_NAMES[field], COL_HEADING_BG, COL_HEADING_TXT,
                  valueText, COL_ICON_DATETIME, preview, "< > change   OK next   hold cancel");
+      dirtyLocal = false;
+    }
+    delay(5);
+  }
+}
+
+// Settings > Alarm: a single daily on/off time, set field by field the
+// same way as Date/Time above. Saves (persists via alarm.h) once the
+// MINUTE field is confirmed; holding OK at any point cancels without
+// saving, same convention as every other setter here.
+void runAlarmSetter() {
+  bool on = Alarm::isEnabled();
+  int hour = Alarm::hour();
+  int minute = Alarm::minute();
+
+  enum Field { F_ON, F_HOUR, F_MINUTE, F_COUNT };
+  const char *const FIELD_NAMES[F_COUNT] = {"ALARM", "HOUR", "MINUTE"};
+  int field = F_ON;
+  bool dirtyLocal = true;
+
+  while (true) {
+    bool lt, ll, rt, rl, ot, ol;
+    btnLeft.poll(lt, ll);
+    btnRight.poll(rt, rl);
+    btnOk.poll(ot, ol);
+
+    if (ol) return; // hold OK: cancel, discard changes
+
+    if (lt || rt) {
+      int delta = rt ? 1 : -1;
+      switch (field) {
+        case F_ON:     on = !on; break;
+        case F_HOUR:   hour = wrapValue(hour + delta, 0, 23); break;
+        case F_MINUTE: minute = wrapValue(minute + delta, 0, 59); break;
+      }
+      dirtyLocal = true;
+    }
+
+    if (ot) {
+      if (field == F_MINUTE) {
+        Alarm::setEnabled(on);
+        Alarm::setTime(hour, minute);
+        return;
+      }
+      field++;
+      dirtyLocal = true;
+    }
+
+    if (dirtyLocal) {
+      String valueText = (field == F_ON)   ? (on ? "ON" : "OFF")
+                          : (field == F_HOUR) ? pad2(hour)
+                                              : pad2(minute);
+      String preview = String(on ? "" : "(off) ") + pad2(hour) + ":" + pad2(minute);
+      drawScreen(String("SET ") + FIELD_NAMES[field], COL_HEADING_BG, COL_HEADING_TXT,
+                 valueText, COL_ICON_ALARM, preview, "< > change   OK next   hold cancel");
       dirtyLocal = false;
     }
     delay(5);
@@ -1436,6 +1504,38 @@ bool askWifiOrManual() {
   }
 }
 
+// Called from ESP32_WiFi_Clock.ino's loop() when Alarm::checkDue() fires.
+// Beeps the buzzer directly via tone() rather than Buzzer::click() -
+// Button Sound is specifically about button-press feedback, not whether
+// the alarm itself can be heard, so this ignores that setting entirely.
+// Dismissed by any button, tap or hold.
+void runAlarmRingingScreen() {
+  String timeStr = pad2(Alarm::hour()) + ":" + pad2(Alarm::minute());
+  drawScreen("ALARM", COL_ICON_ALARM, COL_BG, timeStr, TFT_WHITE, "",
+             "press any button to stop");
+
+  unsigned long lastBeepMs = 0;
+  const unsigned long BEEP_PERIOD_MS = 500;
+
+  while (true) {
+    bool lt, ll, rt, rl, ot, ol;
+    btnLeft.poll(lt, ll);
+    btnRight.poll(rt, rl);
+    btnOk.poll(ot, ol);
+    if (lt || ll || rt || rl || ot || ol) {
+      noTone(BUZZER_PIN);
+      return;
+    }
+
+    unsigned long now = millis();
+    if (now - lastBeepMs >= BEEP_PERIOD_MS) {
+      lastBeepMs = now;
+      tone(BUZZER_PIN, 2200, 200);
+    }
+    delay(5);
+  }
+}
+
 bool handle() {
   bool leftTap, leftLong, rightTap, rightLong, okTap, okLong;
   btnLeft.poll(leftTap, leftLong);
@@ -1489,6 +1589,9 @@ bool handle() {
           dirty = true;
         } else if (settingsIndex == 3) {
           runCityEntry(); // blocking; redraws Settings once it's done
+          dirty = true;
+        } else if (settingsIndex == SETTINGS_IDX_ALARM) {
+          runAlarmSetter(); // blocking; redraws Settings once it's done
           dirty = true;
         } else if (settingsIndex == SETTINGS_IDX_BUZZER) {
           Buzzer::setEnabled(!Buzzer::isEnabled()); // toggles in place, no submenu

@@ -138,6 +138,7 @@ firmware/ESP32_WiFi_Clock/
   rtc_backup.h/.cpp        - optional DS3231 backup RTC over I2C (raw Wire, no library)
   sd_card.h/.cpp           - optional SD card module (SD/SPI, ships with the ESP32 core)
   buzzer.h/.cpp            - optional piezo buzzer: a click on every button press
+  alarm.h/.cpp             - a single daily on/off alarm, set from Settings
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
 tools/make_digit_font.html   - traces photos into a compilable digit font (.h)
 tools/preview/               - renders the weather/calendar screens to PNG on the host, no device needed (see tools/preview/README.md)
@@ -229,10 +230,11 @@ use the on-device WiFi menu item to reconnect to a different network.
 
 **Settings menu:** a scrollable list (LEFT/RIGHT to move, OK to open),
 the same style as the SD Card browser - **WiFi**, **Time Zone**,
-**Date/Time**, **Weather City**, **Button Sound** (toggles the
-[optional buzzer](#optional-piezo-buzzer-button-clicks)'s click straight
-from its row, no submenu needed - shows its current ON/OFF state), and
-**About**.
+**Date/Time**, **Weather City**, [**Alarm**](#alarm) (a single daily
+on/off time, its row showing that time or "OFF"), **Button Sound**
+(toggles the [optional buzzer](#optional-piezo-buzzer-button-clicks)'s
+click straight from its row, no submenu needed - shows its current
+ON/OFF state), and **About**.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
 cycle between five clock faces: the rainbow grid face, where each digit
@@ -377,7 +379,8 @@ from the top level).
   file contents, just browses them), and holding OK goes back up a
   folder, then out of the browser entirely once you're back at the root.
   Says "No SD card found" if nothing's wired up.
-- **Settings** — opens a plain-text list with four items:
+- **Settings** — opens a scrollable list (the same style as the SD Card
+  browser above) with seven items:
   - **WiFi** — scans for nearby networks and shows them one at a time
     (LEFT/RIGHT to browse, hold OK to go back to the list without changing
     anything). Tap OK on a network to select it; if it's locked, an
@@ -400,6 +403,11 @@ from the top level).
     the change right away (holding OK at any point cancels instead). This
     is how you correct **Manual Mode**'s placeholder clock, or nudge the
     time by hand any time.
+  - **Weather City** — types a city name on the same on-screen keyboard
+    WiFi's password entry uses, then looks it up - see [Weather](#weather).
+  - **Alarm** — see [Alarm](#alarm) below.
+  - **Button Sound** — toggles the [optional buzzer](#optional-piezo-buzzer-button-clicks)'s
+    click straight from its row (no submenu), showing its current ON/OFF state.
   - **About** — shows the clock's current IP address and its mDNS
     hostname (`esp32-clock.local`), the two ways to reach the web setup
     page, or "Offline" while there's no WiFi connection (e.g. in Manual
@@ -421,6 +429,26 @@ zone string" field under **Advanced** — you can also type/paste one directly
 there yourself (e.g. `UTC0`, `CST-8` for China/Malaysia/Singapore,
 `EST5EDT,M3.2.0,M11.1.0` for US Eastern with DST). Full reference list:
 https://github.com/nayarsystems/posix_tz_db/blob/master/zones.csv
+
+### Alarm
+
+A single daily on/off alarm (`alarm.h/.cpp`), set from **Settings → Alarm**
+the same way as Date/Time - three fields (On/Off, Hour, Minute), LEFT/RIGHT
+to change the highlighted one, OK to confirm and move to the next, holding
+OK at any point to cancel. Its row in the Settings list shows the set time
+(e.g. `07:00`) or "OFF" so you can see its state without opening it. The
+time and on/off state persist across a power cycle (NVS), same as every
+other saved setting here.
+
+Checked once a minute against the clock's own current time - only while
+sitting on a clock face, not mid-menu (the same trade-off the weather/
+calendar background fetches already make: a blocking Settings screen
+pauses it too, so an alarm due while one's open won't ring until it's
+closed). When it fires, a fullscreen "ALARM" screen takes over showing the
+set time, and the [optional buzzer](#optional-piezo-buzzer-button-clicks)
+beeps every half second - independent of the **Button Sound** setting,
+since that one's specifically about button-press feedback, not whether the
+alarm itself can be heard. Press any button to stop it.
 
 ## Building via GitHub Actions
 

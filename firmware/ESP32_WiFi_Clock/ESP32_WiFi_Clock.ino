@@ -48,6 +48,7 @@
 #include "weather.h"
 #include "calendar_events.h"
 #include "buzzer.h"
+#include "alarm.h"
 
 WebServer server(80);
 DNSServer dnsServer;
@@ -88,6 +89,7 @@ void setup() {
   Weather::begin();          // loads the saved weather city, if one is set
   CalendarEvents::begin();   // holidays are fetched fresh once online
   Buzzer::begin();           // loads the saved on/off state for button clicks
+  Alarm::begin();            // loads the saved alarm on/off state and time
 
   // Hold the OK button for 3s right after boot to wipe saved WiFi. This
   // only runs once, here, before Menu::begin() sets up button polling for
@@ -203,6 +205,17 @@ void loop() {
       timeEverSynced = true;
       bool wifiUp = staMode && WiFi.status() == WL_CONNECTED;
       ClockDisplay::update(timeinfo, true, wifiUp, wifiUp ? WiFi.RSSI() : 0);
+
+      // Only checked here, at the top level (clock face showing, no menu
+      // screen active) - same trade-off Weather::loop()/CalendarEvents::
+      // loop() above already make: a blocking menu screen (deep in a
+      // Settings submenu, say) pauses this too, so an alarm due while
+      // one's open won't ring until it's closed. Acceptable since the
+      // clock sits on its face the vast majority of the time.
+      if (Alarm::checkDue(timeinfo)) {
+        Menu::runAlarmRingingScreen();
+        ClockDisplay::forceFullRedraw();
+      }
     } else if (staMode && !timeEverSynced && now - lastWaitMsg >= 1000) {
       // NTP hasn't landed yet (slow or blocked on this network) - keep the
       // screen alive with live status instead of freezing on "Syncing
