@@ -254,9 +254,11 @@ sampled from that same artwork, with a matching green status bar and
 cream text; [**Silver**](#silver-face), chrome-gradient numerals with
 a soft glow on a plain black background, with a matching gunmetal status
 bar that gets the same glossy top-edge highlight as the digits
-themselves; and [**Neon**](#neon-face), glowing cyan 7-segment digits on
-black with a small looping astronaut animation beside them. Turning on
-[**Custom Face**](#custom-face) adds a seventh: whichever face you've
+themselves; [**Neon**](#neon-face), glowing cyan 7-segment digits on
+black with a small looping astronaut animation beside them; and
+[**Dial**](#dial-face), a smartwatch-style gauge with the hour standing
+alone in big digits and the minute riding a two-ring tick scale. Turning
+on [**Custom Face**](#custom-face) adds an eighth: whichever face you've
 built yourself and saved to the SD card (or a "pick one" message if you
 haven't). The status bar re-skins to match whichever face is active (or
 hides entirely on Video). The choice of *which* face is showing isn't
@@ -328,6 +330,33 @@ whole clip so it never jitters as it tumbles). The status badges go
 edge-to-edge with the black background - no visible pill shape, just
 cyan text floating directly on the panel, matching the reference photo
 this face was built from.
+
+### Dial Face
+
+A two-tier gauge, modelled on a smartwatch dial. The hour stands alone on
+the left in the big Fredoka digits. The current minute sits inside an open
+"stadium" - a rounded cap on the left with two rails running out towards
+the right edge and no closing cap - and two concentric rings of tick marks
+sweep out through that open mouth: the inner ring counts the minutes
+either side of now, the outer one the seconds, with an amber dot riding
+the outer ring at the live position. Both rings share one centre, off to
+the left of the stadium's mouth, so a tick is almost horizontal near the
+middle and tilts progressively further as it sweeps up or down, the way a
+speedometer scale does.
+
+The layout rule worth knowing about is the draw order. The scale numbers
+are placed **first**, then the rails and ticks are drawn *around* them: a
+rail breaks into segments where a number sits on it, and a tick underneath
+a number is skipped entirely. That means every number stays pinned to its
+own ring's radius - none is ever nudged aside to dodge a collision - which
+is what makes the two scales read as two clean arcs rather than digits
+scattered at assorted distances. A number that would land on the minute
+digits themselves is dropped rather than moved, for the same reason.
+
+Everything from the stadium rightwards goes through one offscreen sprite,
+repainted once a second (the seconds ring moves); the hour digits sit
+entirely to the left of it and are pushed separately, only when the hour
+actually changes.
 
 ### Custom Face
 
@@ -549,11 +578,13 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   font, but a self-service option that doesn't need a TTF at all.
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
   per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`)
-  based on `currentFace` - Video, Botanical, Silver, Neon and Custom bypass
-  this dispatcher entirely and redraw their own whole row each tick
+  based on `currentFace` - Video, Botanical, Silver, Neon, Dial and Custom
+  bypass this dispatcher entirely and redraw their own whole row each tick
   (`VideoPlayer::draw()`, `drawPhotoRow()`, `drawNeonDigitRow()`,
-  `drawCustomFaceRow()`), since none of them fit the fixed per-cell column
-  grid the other two share. Neon also redraws its corner astronaut
+  `drawDialGauge()`, `drawCustomFaceRow()`), since none of them fit the
+  fixed per-cell column grid the other two share. Dial splits its repaint
+  in two - `drawDialHourDigit()` only when the hour changes, the gauge
+  sprite every second. Neon also redraws its corner astronaut
   animation (`drawNeonAnimFrame()`, reading baked frames from
   `NeonAstroAnim.h`) on its own faster timer, independent of whether the
   digits changed. Custom Face reads its artwork from SD at runtime instead
