@@ -5,6 +5,7 @@
 #include "video_player.h"
 #include "clock_display.h"
 #include "weather.h"
+#include "custom_face.h"
 #include "config.h"
 #include <WiFi.h>
 
@@ -121,12 +122,13 @@ const char *VIDEO_PATH = "/video/video.bin";
 size_t uploadTotalBytes = 0;
 int uploadLastPercentShown = -1;
 
-// Draws a simple "Receiving video... NN%" screen directly on the shared
+// Draws a simple "Receiving <label>... NN%" screen directly on the shared
 // display (see ClockDisplay::rawDisplay(), the same escape hatch the
 // on-device menu uses to draw its own screens) - the clock face has no
 // idea an upload is even happening, so this is the only way to surface
-// progress on-device rather than just in the browser tab.
-void drawUploadProgress(int percent) {
+// progress on-device rather than just in the browser tab. Shared by the
+// Video and Custom Face uploads below - only the label differs.
+void drawUploadProgress(int percent, const char *label) {
   TFT_eSPI &tft = ClockDisplay::rawDisplay();
   int w = TFT_SCREEN_WIDTH, h = TFT_SCREEN_HEIGHT;
 
@@ -134,7 +136,7 @@ void drawUploadProgress(int percent) {
   tft.setFreeFont(&FreeSansBold12pt7b);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextDatum(MC_DATUM);
-  tft.drawString("Receiving video...", w / 2, h / 2 - 28);
+  tft.drawString(label, w / 2, h / 2 - 28);
 
   int barW = w - 60, barH = 18;
   int barX = 30, barY = h / 2 - 4;
@@ -161,7 +163,7 @@ void handleVideoUploadData() {
     SdCard::beginWrite(VIDEO_PATH);
     uploadTotalBytes = server->header("Content-Length").toInt();
     uploadLastPercentShown = -1;
-    drawUploadProgress(0);
+    drawUploadProgress(0, "Receiving video...");
   } else if (upload.status == UPLOAD_FILE_WRITE) {
     SdCard::writeChunk(upload.buf, upload.currentSize);
     if (uploadTotalBytes > 0) {
@@ -172,7 +174,7 @@ void handleVideoUploadData() {
       // traffic - only repaint when the shown percentage actually changes.
       if (percent != uploadLastPercentShown) {
         uploadLastPercentShown = percent;
-        drawUploadProgress(percent);
+        drawUploadProgress(percent, "Receiving video...");
       }
     }
   } else if (upload.status == UPLOAD_FILE_END) {
@@ -182,7 +184,7 @@ void handleVideoUploadData() {
     // version) so Video Face picks up the fresh one on its next redraw
     // instead of judging it against stale state until a reboot.
     VideoPlayer::invalidate();
-    drawUploadProgress(100);
+    drawUploadProgress(100, "Receiving video...");
     delay(400); // brief, so "100%" is actually visible before it clears
     ClockDisplay::forceFullRedraw();
   }
@@ -195,6 +197,101 @@ void handleVideoStatus() {
 
 void handleVideoDelete() {
   SdCard::remove(VIDEO_PATH);
+  server->send(200, "text/plain", "OK");
+}
+
+// ---- Custom Face uploads ------------------------------------------------
+// Files are built entirely off-device by tools/make_custom_face.html (see
+// custom_face.h for the exact binary layout this endpoint never inspects,
+// just streams to SD) - the same generic upload-to-SD approach as Video
+// Face's above. Unlike Video Face there can be several saved at once, so
+// this section also lists and deletes; which one is *active* is picked
+// on-device instead, from Settings > Custom Face (menu.cpp's
+// runCustomFacePicker()) - this portal only manages which files exist.
+const char *FACES_DIR = "/faces/";
+String faceUploadFilename;
+
+// Keeps an uploaded filename SD-safe and inside /faces - strips any path
+// separators from what the browser sent (a full path on some browsers,
+// just a name on others) and forces a .cface extension so a renamed file
+// doesn't silently fail to show up in the on-device picker, which only
+// lists *.cface.
+String sanitizeFaceFilename(const String &rawName) {
+  String name = rawName;
+  int slash = max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+  if (slash >= 0) name = name.substring(slash + 1);
+  name.trim();
+  if (name.length() == 0) name = "face";
+  String lower = name;
+  lower.toLowerCase();
+  if (!lower.endsWith(".cface")) name += ".cface";
+  return name;
+}
+
+void handleFaceList() {
+  CustomFace::Entry entries[40];
+  int count = CustomFace::list(entries, 40);
+  String json = "[";
+  for (int i = 0; i < count; i++) {
+    if (i) json += ",";
+    String file = entries[i].path.substring(strlen(FACES_DIR));
+    json += "{\"name\":\"" + escapeJson(entries[i].displayName) + "\",";
+    json += "\"file\":\"" + escapeJson(file) + "\",";
+    json += "\"active\":" + String(CustomFace::hasActive() && CustomFace::activePath() == entries[i].path
+                                        ? "true" : "false") + "}";
+  }
+  json += "]";
+  server->send(200, "application/json", json);
+}
+
+void handleFaceUpload() {
+  server->send(SdCard::isPresent() ? 200 : 400, "text/plain",
+               SdCard::isPresent() ? "OK" : "No SD card");
+}
+
+void handleFaceUploadData() {
+  HTTPUpload &upload = server->upload();
+  if (upload.status == UPLOAD_FILE_START) {
+    faceUploadFilename = sanitizeFaceFilename(upload.filename);
+    SdCard::beginWrite(String(FACES_DIR) + faceUploadFilename);
+    uploadTotalBytes = server->header("Content-Length").toInt();
+    uploadLastPercentShown = -1;
+    drawUploadProgress(0, "Receiving custom face...");
+  } else if (upload.status == UPLOAD_FILE_WRITE) {
+    SdCard::writeChunk(upload.buf, upload.currentSize);
+    if (uploadTotalBytes > 0) {
+      int percent = (int)((upload.totalSize * 100ULL) / uploadTotalBytes);
+      if (percent > 100) percent = 100;
+      if (percent != uploadLastPercentShown) {
+        uploadLastPercentShown = percent;
+        drawUploadProgress(percent, "Receiving custom face...");
+      }
+    }
+  } else if (upload.status == UPLOAD_FILE_END) {
+    SdCard::endWrite();
+    drawUploadProgress(100, "Receiving custom face...");
+    delay(400);
+    ClockDisplay::forceFullRedraw();
+  }
+}
+
+void handleFaceDelete() {
+  String file = server->arg("file");
+  if (file.length() == 0) {
+    server->send(400, "text/plain", "file required");
+    return;
+  }
+  String path = String(FACES_DIR) + sanitizeFaceFilename(file);
+  // Deleting the file the Custom clock face is currently showing needs the
+  // same "fall back to the placeholder message" cleanup
+  // CustomFace::clearActive() already does for the on-device picker's
+  // "None" entry, plus a repaint in case that face is on screen right now.
+  bool wasActive = CustomFace::hasActive() && CustomFace::activePath() == path;
+  SdCard::remove(path);
+  if (wasActive) {
+    CustomFace::clearActive();
+    ClockDisplay::forceFullRedraw();
+  }
   server->send(200, "text/plain", "OK");
 }
 
@@ -274,6 +371,9 @@ void begin(WebServer *serverPtr, DNSServer *dnsPtr, bool isCaptive) {
   server->on("/video/upload", HTTP_POST, handleVideoUpload, handleVideoUploadData);
   server->on("/video/status", HTTP_GET, handleVideoStatus);
   server->on("/video/delete", HTTP_POST, handleVideoDelete);
+  server->on("/faces/list", HTTP_GET, handleFaceList);
+  server->on("/faces/upload", HTTP_POST, handleFaceUpload, handleFaceUploadData);
+  server->on("/faces/delete", HTTP_POST, handleFaceDelete);
   server->on("/weather/status", HTTP_GET, handleWeatherStatus);
   server->on("/weather/save", HTTP_POST, handleWeatherSave);
 

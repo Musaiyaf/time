@@ -8,6 +8,7 @@
 #include "sd_card.h"
 #include "buzzer.h"
 #include "alarm.h"
+#include "custom_face.h"
 #include <WiFi.h>
 
 namespace {
@@ -146,6 +147,7 @@ const uint16_t COL_ICON_SD = rgb565(255, 210, 60);    // gold
 const uint16_t COL_ICON_WEATHER = rgb565(120, 190, 255); // sky blue
 const uint16_t COL_ICON_BUZZER = rgb565(190, 140, 255);  // violet
 const uint16_t COL_ICON_ALARM = rgb565(255, 130, 90);    // warm red-orange
+const uint16_t COL_ICON_CUSTOM_FACE = rgb565(90, 220, 180); // teal
 
 // ---- menu state -------------------------------------------------------
 // CLOCK -> MAIN (3 icon tiles: SD Card, Settings, Back) -> SETTINGS (text
@@ -162,20 +164,21 @@ const char *const MAIN_LABELS[MAIN_TILE_COUNT] = {"SD Card", "Settings", "Back"}
 const uint16_t MAIN_COLORS[MAIN_TILE_COUNT] = {COL_ICON_SD, COL_SETTINGS_ACCENT, COL_ICON_BACK};
 int mainIndex = 0;
 
-const int SETTINGS_COUNT = 7;
+const int SETTINGS_COUNT = 8;
 const char *const SETTINGS_LABELS[SETTINGS_COUNT] = {"WiFi", "Time Zone", "Date/Time", "Weather City",
-                                                       "Alarm", "Button Sound", "About"};
+                                                       "Alarm", "Button Sound", "Custom Face", "About"};
 const uint16_t SETTINGS_COLORS[SETTINGS_COUNT] = {COL_ICON_WIFI, COL_ICON_TZ, COL_ICON_DATETIME,
                                                    COL_ICON_WEATHER, COL_ICON_ALARM, COL_ICON_BUZZER,
-                                                   COL_SETTINGS_ACCENT};
+                                                   COL_ICON_CUSTOM_FACE, COL_SETTINGS_ACCENT};
 const int SETTINGS_IDX_ALARM = 4;
 const int SETTINGS_IDX_BUZZER = 5;
+const int SETTINGS_IDX_CUSTOM_FACE = 6;
 int settingsIndex = 0;
 
 // Shared by every scrollable list screen (Settings, the SD card browser) -
 // a coloured heading bar with a position indicator, then full-width rows
 // with the selected one drawn as a solid highlight pill.
-const int LIST_ROW_H = 17; // 7 Settings rows now that Alarm is one of them
+const int LIST_ROW_H = 15; // 8 Settings rows now that Custom Face is one of them
 const int LIST_TOP = 28;
 
 int continentIndex = 0;
@@ -356,6 +359,13 @@ void drawSettingsList() {
     } else if (i == SETTINGS_IDX_BUZZER) {
       tft.setTextDatum(MR_DATUM);
       tft.drawString(Buzzer::isEnabled() ? "ON" : "OFF", W - 8, y + LIST_ROW_H / 2);
+    } else if (i == SETTINGS_IDX_CUSTOM_FACE) {
+      tft.setTextDatum(MR_DATUM);
+      String status = CustomFace::hasActive() ? CustomFace::activeName() : "None";
+      // Long face names would otherwise run into the label on the left -
+      // this row's own width is generous but not unlimited.
+      if (status.length() > 14) status = status.substring(0, 11) + "...";
+      tft.drawString(status, W - 8, y + LIST_ROW_H / 2);
     }
   }
 
@@ -796,6 +806,105 @@ void runSdBrowser() {
 
     if (dirtyLocal) {
       drawSdList(path, entries, count, idx);
+      dirtyLocal = false;
+    }
+    delay(5);
+  }
+}
+
+// ---- Custom Face picker -------------------------------------------------
+// Picks which .cface the Custom clock face shows, from however many are
+// saved on the SD card's /faces folder - built off-device by
+// tools/make_custom_face.html and uploaded via the web portal (see
+// custom_face.h/.cpp). Same scrollable-list pattern as the SD card browser
+// above, but flat (no directories) and with one synthetic entry at the top
+// to clear the selection back to "none" (Custom Face's own placeholder
+// message) rather than needing to delete the file to do that.
+const int CUSTOM_FACE_MAX_ENTRIES = 20;
+
+void runCustomFacePicker() {
+  if (!SdCard::isPresent()) {
+    drawScreen("CUSTOM FACE", COL_HEADING_BG, COL_HEADING_TXT, "No SD card found",
+               COL_WARN, "", "tap OK to go back");
+    blockForOk();
+    return;
+  }
+
+  static CustomFace::Entry entries[CUSTOM_FACE_MAX_ENTRIES];
+  int fileCount = CustomFace::list(entries, CUSTOM_FACE_MAX_ENTRIES);
+  int count = fileCount + 1; // + the synthetic "None" entry at index 0
+
+  int idx = 0;
+  if (CustomFace::hasActive()) {
+    for (int i = 0; i < fileCount; i++) {
+      if (entries[i].path == CustomFace::activePath()) {
+        idx = i + 1;
+        break;
+      }
+    }
+  }
+
+  bool dirtyLocal = true;
+  while (true) {
+    bool lt, ll, rt, rl, ot, ol;
+    btnLeft.poll(lt, ll);
+    btnRight.poll(rt, rl);
+    btnOk.poll(ot, ol);
+
+    if (lt) { idx = (idx + count - 1) % count; dirtyLocal = true; }
+    if (rt) { idx = (idx + 1) % count; dirtyLocal = true; }
+    if (ol) return; // back out without changing anything
+
+    if (ot) {
+      if (idx == 0) {
+        CustomFace::clearActive();
+      } else {
+        CustomFace::setActive(entries[idx - 1].path);
+      }
+      // Picking a face while Custom is already showing (or clearing it)
+      // needs an immediate repaint - see ClockDisplay::update()'s
+      // FACE_CUSTOM branch, which otherwise only redraws on a digit/colon
+      // change, not on the active file changing underneath it.
+      ClockDisplay::forceFullRedraw();
+      return;
+    }
+
+    if (dirtyLocal) {
+      TFT_eSPI &tft = ClockDisplay::rawDisplay();
+      tft.fillScreen(COL_BG);
+      tft.fillRect(0, 0, TFT_SCREEN_WIDTH, 26, COL_HEADING_BG);
+      tft.setFreeFont(&FreeSansBold9pt7b);
+      tft.setTextColor(COL_HEADING_TXT, COL_HEADING_BG);
+      tft.setTextDatum(MC_DATUM);
+      tft.drawString("CUSTOM FACE", TFT_SCREEN_WIDTH / 2, 13);
+      tft.setTextDatum(MR_DATUM);
+      tft.drawString(String(idx + 1) + "/" + String(count), TFT_SCREEN_WIDTH - 6, 13);
+
+      int windowStart = 0;
+      if (count > SD_VISIBLE_ROWS) {
+        windowStart = idx - SD_VISIBLE_ROWS / 2;
+        windowStart = max(0, min(windowStart, count - SD_VISIBLE_ROWS));
+      }
+      int rowsToShow = min(count - windowStart, SD_VISIBLE_ROWS);
+
+      for (int i = 0; i < rowsToShow; i++) {
+        int entryIdx = windowStart + i;
+        int y = LIST_TOP + i * LIST_ROW_H;
+        bool sel = (entryIdx == idx);
+        String label = (entryIdx == 0) ? "(None - built-in faces only)" : entries[entryIdx - 1].displayName;
+        uint16_t rowBg = sel ? COL_ICON_CUSTOM_FACE : COL_BG;
+        uint16_t txtColor = sel ? COL_BG : TFT_WHITE;
+
+        if (sel) tft.fillRect(0, y, TFT_SCREEN_WIDTH, LIST_ROW_H, rowBg);
+        tft.setTextColor(txtColor, rowBg);
+        tft.setTextDatum(ML_DATUM);
+        tft.drawString(label, 8, y + LIST_ROW_H / 2);
+      }
+
+      tft.setTextDatum(MC_DATUM);
+      tft.setTextColor(COL_HINT_TXT, COL_BG);
+      tft.drawString("< > move   OK select   hold back", TFT_SCREEN_WIDTH / 2, TFT_SCREEN_HEIGHT - 10);
+      tft.setFreeFont(nullptr);
       dirtyLocal = false;
     }
     delay(5);
@@ -1595,6 +1704,9 @@ bool handle() {
           dirty = true;
         } else if (settingsIndex == SETTINGS_IDX_BUZZER) {
           Buzzer::setEnabled(!Buzzer::isEnabled()); // toggles in place, no submenu
+          dirty = true;
+        } else if (settingsIndex == SETTINGS_IDX_CUSTOM_FACE) {
+          runCustomFacePicker(); // blocking; redraws Settings once it's done
           dirty = true;
         } else {
           state = ST_ABOUT;

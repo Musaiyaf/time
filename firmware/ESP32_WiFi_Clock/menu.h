@@ -9,16 +9,18 @@
 //     confirms it, holding OK goes back a level (or exits to the clock
 //     face from the top level).
 // Menu contents: Settings (WiFi, Time Zone, Date/Time, Weather City,
-// Alarm, Button Sound, About - a scrollable list) and Back. WiFi scans
-// for nearby networks, lets you pick one and type its password on an
-// on-screen keyboard, then connects. Time Zone picks a continent, then a
-// specific zone within it - covers the same ~430 IANA zones as the web
-// setup page. Date/Time sets the clock by hand, field by field - used
+// Alarm, Button Sound, Custom Face, About - a scrollable list) and Back.
+// WiFi scans for nearby networks, lets you pick one and type its password
+// on an on-screen keyboard, then connects. Time Zone picks a continent,
+// then a specific zone within it - covers the same ~430 IANA zones as the
+// web setup page. Date/Time sets the clock by hand, field by field - used
 // for Manual (offline) mode, or just to correct the time. Weather City
 // types a city name on the same on-screen keyboard and looks it up.
 // Alarm sets a single daily on/off time, field by field like Date/Time -
-// see alarm.h for how it's checked and rung. About shows the device's
-// current IP/hostname.
+// see alarm.h for how it's checked and rung. Custom Face picks which
+// user-designed .cface (built off-device, uploaded via the web portal)
+// the Custom clock face shows, from however many are saved on the SD
+// card - see custom_face.h. About shows the device's current IP/hostname.
 namespace Menu {
 
 void begin();

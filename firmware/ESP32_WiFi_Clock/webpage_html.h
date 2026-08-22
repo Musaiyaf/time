@@ -148,6 +148,20 @@ const char PAGE_TEMPLATE[] PROGMEM = R"rawliteral(
     <button class="secondary danger" id="vidDeleteBtn" style="display:none" onclick="videoDelete()">Remove saved video</button>
   </div>
 
+  <div class="card">
+    <h2>Custom Faces</h2>
+    <div class="sub">
+      Design a face in <b>tools/make_custom_face.html</b> (open that file in a
+      browser, no server needed) and upload the .cface it builds here. The SD
+      card can hold several - pick which one shows from the clock's own
+      Settings &gt; Custom Face menu.
+    </div>
+    <input type="file" id="faceFile" accept=".cface" style="display:none" onchange="faceUpload(event)">
+    <button type="button" class="secondary" onclick="document.getElementById('faceFile').click()">Upload a .cface file</button>
+    <div class="sub" id="faceProgress"></div>
+    <div id="faceList"></div>
+  </div>
+
   <button class="secondary danger" onclick="resetWifi()">Forget saved WiFi</button>
 
   <div class="footer">ESP32-S3 Grid Clock</div>
@@ -428,6 +442,65 @@ function vidRefreshStatus(){
   });
 }
 vidRefreshStatus();
+
+// ---- Custom Faces -----------------------------------------------------
+// Unlike Video Face there's no on-device decoding to do here at all - the
+// .cface the user picks is already the exact finished binary
+// tools/make_custom_face.html built (see custom_face.h for its layout),
+// so this just streams the file straight through, then re-lists what's
+// on the SD card afterwards.
+function faceUpload(e){
+  var file = e.target.files[0];
+  if (!file) return;
+  var prog = document.getElementById('faceProgress');
+  prog.textContent = 'Uploading...';
+
+  var fd = new FormData();
+  fd.append('face', file, file.name);
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', '/faces/upload');
+  xhr.upload.onprogress = function(ev){
+    if (ev.lengthComputable) prog.textContent = 'Uploading... ' + Math.round(100 * ev.loaded / ev.total) + '%';
+  };
+  xhr.onload = function(){
+    prog.textContent = xhr.status === 200
+        ? 'Saved! Pick it from the clock\'s Settings > Custom Face menu.'
+        : 'Upload failed (' + xhr.status + ').';
+    faceRefreshList();
+  };
+  xhr.onerror = function(){ prog.textContent = 'Upload failed - check the connection and try again.'; };
+  xhr.send(fd);
+  e.target.value = ''; // lets picking the same filename again re-fire onchange
+}
+
+function faceDelete(file){
+  if (!confirm('Remove "' + file + '" from the clock?')) return;
+  fetch('/faces/delete', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+    body: 'file=' + encodeURIComponent(file)
+  }).then(faceRefreshList);
+}
+
+function faceRefreshList(){
+  fetch('/faces/list').then(function(r){ return r.json(); }).then(function(list){
+    var out = document.getElementById('faceList');
+    if (!list.length) { out.innerHTML = '<div class="sub">No custom faces uploaded yet.</div>'; return; }
+    var html = '';
+    for (var i = 0; i < list.length; i++) {
+      var f = list[i];
+      html += '<div class="net"><div><div class="ssid">' + escapeHtml(f.name) +
+              (f.active ? ' <span style="color:var(--week)">(active)</span>' : '') + '</div>' +
+              '<div class="meta">' + escapeHtml(f.file) + '</div></div>' +
+              '<button class="secondary danger" style="width:auto;padding:6px 12px" ' +
+              'data-file="' + escapeHtml(f.file) + '" onclick="faceDelete(this.dataset.file)">Remove</button></div>';
+    }
+    out.innerHTML = html;
+  }).catch(function(){
+    document.getElementById('faceList').innerHTML = '';
+  });
+}
+faceRefreshList();
 
 // ---- Weather --------------------------------------------------------
 // The city is saved on its own, without the reboot the WiFi form does:

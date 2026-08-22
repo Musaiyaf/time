@@ -5,6 +5,7 @@
 #include "BotanicalDigits.h"
 #include "SilverDigits.h"
 #include "NeonAstroAnim.h"
+#include "custom_face.h"
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
 // TFT_eSPI.h (with LOAD_GFXFF enabled) already pulls in every Adafruit GFX
@@ -199,7 +200,8 @@ enum ClockFaceId {
   FACE_BOTANICAL = 3,
   FACE_SILVER = 4,
   FACE_NEON = 5,
-  FACE_COUNT = 6
+  FACE_CUSTOM = 6,
+  FACE_COUNT = 7
 };
 int currentFace = FACE_RAINBOW_GRID;
 
@@ -208,6 +210,17 @@ const BadgeTheme &badgeTheme() {
   if (currentFace == FACE_BOTANICAL) return THEME_BOTANICAL;
   if (currentFace == FACE_SILVER) return THEME_SILVER;
   if (currentFace == FACE_NEON) return THEME_NEON;
+  if (currentFace == FACE_CUSTOM) {
+    // Unlike every other theme (fixed at compile time), Custom Face's
+    // badge colours come from whichever .cface is currently loaded (see
+    // custom_face.h) - recomputed fresh on every call rather than cached,
+    // since the active file can change at runtime from the Settings menu.
+    static BadgeTheme t;
+    uint16_t bg = CustomFace::hasActive() ? CustomFace::badgeBg() : COL_BG;
+    uint16_t fg = CustomFace::hasActive() ? CustomFace::badgeFg() : TFT_WHITE;
+    t = {bg, fg, bg, fg, bg, fg, bg, fg, bg, fg, bg, fg};
+    return t;
+  }
   return THEME_RAINBOW;
 }
 
@@ -653,6 +666,75 @@ void drawNeonAnimFrame() {
   neonAnimSpr.pushSprite(neonAnimX, neonAnimY);
 }
 
+// ---- Custom Face ---------------------------------------------------------
+// Fully user-designed clock face: every digit (and the colon) is its own
+// image the user supplied in tools/make_custom_face.html, plus an optional
+// background image and its own badge colours - see custom_face.h for how
+// that's loaded from an SD card .cface file and cached in RAM.
+//
+// Unlike Botanical/Silver's photo digits (arbitrary-sized crops that get
+// *scaled* to a shared slot - see drawPhotoDigitToSprite() above), these
+// are drawn pixel-exact: the whole point of a "design your own digits"
+// tool is that the user already controls each glyph's exact size, so
+// scaling them on top of that would just soften pixel art they drew on
+// purpose. Only each slot's *width* is normalised (to the widest 0-9
+// glyph) so the row's total width - and thus its centred x position -
+// never changes as narrower/wider digits rotate through, the same
+// jump-prevention photoSlotW exists for above. Glyph pixels live in plain
+// heap RAM (not PROGMEM), so they can go straight into tft.pushImage()
+// with no pgm_read_word loop or intermediate sprite needed.
+const int CUSTOM_GAP = 2; // gap between adjacent digit/colon slots
+
+void drawCustomFaceMessage() {
+  tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, COL_BG);
+  tft.setFreeFont(&FreeSansBold9pt7b);
+  tft.setTextColor(TFT_WHITE, COL_BG);
+  tft.setTextDatum(MC_DATUM);
+  tft.drawString("No custom face selected", SCR_W / 2, CLOCK_TOP + CLOCK_H / 2 - 12);
+  tft.drawString("Pick one in Settings > Custom Face", SCR_W / 2, CLOCK_TOP + CLOCK_H / 2 + 12);
+  tft.setFreeFont(nullptr);
+}
+
+void drawCustomFaceRow(const char *buf, bool colonVisible) {
+  if (CustomFace::hasBackgroundImage()) {
+    tft.pushImage(0, CLOCK_TOP, CustomFace::BG_W, CustomFace::BG_H, CustomFace::backgroundPixels());
+  } else {
+    tft.fillRect(0, CLOCK_TOP, SCR_W, CLOCK_H, CustomFace::bgColor());
+  }
+
+  int slotW = 0;
+  for (int d = 0; d <= 9; d++) slotW = max(slotW, CustomFace::glyphFor('0' + d).w);
+  int colonW = CustomFace::glyphFor(':').w;
+
+  int rowH = colonW ? CustomFace::glyphFor(':').h : 0;
+  for (int d = 0; d <= 9; d++) rowH = max(rowH, CustomFace::glyphFor('0' + d).h);
+  rowH = min(rowH, CLOCK_H); // defensive - the design tool already keeps glyphs within this
+
+  int rowW = 6 * slotW + 2 * colonW + 7 * CUSTOM_GAP;
+  int rowX = max(0, (SCR_W - rowW) / 2);
+  int rowY = CLOCK_TOP + (CLOCK_H - rowH) / 2;
+
+  int x = rowX;
+  int idx = 0;
+  for (int slot = 0; slot < 8; slot++) {
+    if (slot == 2 || slot == 5) {
+      if (colonVisible) {
+        CustomFace::Glyph g = CustomFace::glyphFor(':');
+        if (g.pixels) {
+          tft.pushImage(x + (colonW - g.w) / 2, rowY + (rowH - g.h) / 2, g.w, g.h, g.pixels);
+        }
+      }
+      x += colonW + CUSTOM_GAP;
+    } else {
+      CustomFace::Glyph g = CustomFace::glyphFor(buf[idx++]);
+      if (g.pixels) {
+        tft.pushImage(x + (slotW - g.w) / 2, rowY + (rowH - g.h) / 2, g.w, g.h, g.pixels);
+      }
+      x += slotW + CUSTOM_GAP;
+    }
+  }
+}
+
 void drawDigitCell(int col, char ch) {
   if (currentFace == FACE_SEVEN_SEG) {
     drawSevenSegDigitCell(col, ch);
@@ -1001,6 +1083,31 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
       neonAnimLastMs = nowMs;
       neonAnimFrame = (neonAnimFrame + 1) % NEON_ANIM_FRAME_COUNT;
       drawNeonAnimFrame();
+    }
+  } else if (currentFace == FACE_CUSTOM) {
+    // Same "whole row, only on change" pattern Botanical/Silver/Neon use
+    // above, plus one more thing that can change underneath this face
+    // without a digit or the colon blink doing so: which .cface is active,
+    // or whether one is active at all - picked live from the Settings menu
+    // while this face might already be showing.
+    static bool lastCustomHadActive = false;
+    static String lastCustomPath;
+    bool hasActive = CustomFace::hasActive();
+    bool activeChanged = (hasActive != lastCustomHadActive) ||
+                         (hasActive && CustomFace::activePath() != lastCustomPath);
+    bool changed = activeChanged || (colonVisible != lastColonVisible);
+    for (int i = 0; i < 6; i++) {
+      if (lastDigit[i] != buf[i]) changed = true;
+    }
+    if (changed) {
+      if (hasActive) {
+        drawCustomFaceRow(buf, colonVisible);
+      } else {
+        drawCustomFaceMessage();
+      }
+      for (int i = 0; i < 6; i++) lastDigit[i] = buf[i];
+      lastCustomHadActive = hasActive;
+      lastCustomPath = CustomFace::activePath();
     }
   } else {
     const char *src = buf;

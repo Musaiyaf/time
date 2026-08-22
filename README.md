@@ -139,8 +139,10 @@ firmware/ESP32_WiFi_Clock/
   sd_card.h/.cpp           - optional SD card module (SD/SPI, ships with the ESP32 core)
   buzzer.h/.cpp            - optional piezo buzzer: a click on every button press
   alarm.h/.cpp             - a single daily on/off alarm, set from Settings
+  custom_face.h/.cpp       - loads user-designed .cface files (Custom Face) from SD
 TFT_eSPI_Setup/User_Setup.h - TFT_eSPI display driver configuration
 tools/make_digit_font.html   - traces photos into a compilable digit font (.h)
+tools/make_custom_face.html  - builds a Custom Face .cface file (see above)
 tools/preview/               - renders the weather/calendar screens to PNG on the host, no device needed (see tools/preview/README.md)
 .github/workflows/build-firmware.yml - CI build producing a flashable .bin
 ```
@@ -234,10 +236,12 @@ the same style as the SD Card browser - **WiFi**, **Time Zone**,
 on/off time, its row showing that time or "OFF"), **Button Sound**
 (toggles the [optional buzzer](#optional-piezo-buzzer-button-clicks)'s
 click straight from its row, no submenu needed - shows its current
-ON/OFF state), and **About**.
+ON/OFF state), [**Custom Face**](#custom-face) (picks which saved
+`.cface` the Custom clock face shows, or "None" - its row shows the
+active one's name), and **About**.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between six clock faces: the rainbow grid face, where each digit
+cycle between seven clock faces: the rainbow grid face, where each digit
 rolls to its next value like a train on a vertical rail track - the old
 digit slides up and off the top of its cell while the new one rises from
 below to take its place, rather than the instant swap every other face
@@ -251,11 +255,15 @@ sampled from that same artwork, with a matching green status bar and
 cream text; [**Silver**](#silver-face), chrome-gradient numerals with
 a soft glow on a plain black background, with a matching gunmetal status
 bar that gets the same glossy top-edge highlight as the digits
-themselves; and [**Neon**](#neon-face), glowing cyan 7-segment digits on
-black with a small looping astronaut animation beside them. The status
-bar re-skins to match whichever face is active (or hides entirely on
-Video). The choice isn't saved across a power cycle - it always starts
-on the rainbow grid face.
+themselves; [**Neon**](#neon-face), glowing cyan 7-segment digits on
+black with a small looping astronaut animation beside them; and
+[**Custom**](#custom-face), which shows whichever face you've built
+yourself and saved to the SD card (or a "pick one" message if you
+haven't). The status bar re-skins to match whichever face is active (or
+hides entirely on Video). The choice of *which* face is showing isn't
+saved across a power cycle (it always starts on the rainbow grid face) -
+but which `.cface` Custom Face points at is, since that's set from
+Settings rather than by cycling.
 
 ### Video Wallpaper
 
@@ -321,6 +329,37 @@ whole clip so it never jitters as it tumbles). The status badges go
 edge-to-edge with the black background - no visible pill shape, just
 cyan text floating directly on the panel, matching the reference photo
 this face was built from.
+
+### Custom Face
+
+Design your own clock face entirely off-device: open
+[`tools/make_custom_face.html`](tools/make_custom_face.html) in any
+browser (no server needed, no internet access needed - it runs
+completely locally) and it walks you through:
+
+- an optional background image (crop/zoom to fit, same tool as Video
+  Wallpaper's crop step below),
+- your own artwork for every digit (0-9) and the colon - each one drawn
+  **pixel-exact** on the clock rather than stretched to fit, so design
+  them at the size you actually want them to appear (capped to 140px
+  tall; anything taller is scaled down to fit, never up),
+- the status bar's badge background and text colours,
+- a live preview of the assembled face using the clock's own layout math.
+
+When you're happy with it, **Build & download .cface** saves one file.
+Upload that from the web portal's **Custom Faces** card (works over WiFi,
+no need to remove the SD card) - the card lists everything you've saved
+there and can remove any of them. The SD card can hold as many `.cface`
+files as fit; which one the **Custom** clock face actually shows is
+picked on-device from **Settings > Custom Face**, which also lets you
+switch back to "None".
+
+The `.cface` file itself is a small custom binary (magic bytes, embedded
+name, three RGB565 colours, an optional 320&times;140 background image,
+then each glyph's own width/height plus its raw RGB565 pixels) - see the
+comment at the top of `custom_face.h` and `tools/make_custom_face.html`
+for the exact byte layout if you want to generate one programmatically
+instead.
 
 ### Weather
 
@@ -510,13 +549,16 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   font, but a self-service option that doesn't need a TTF at all.
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
   per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`)
-  based on `currentFace` - Video, Botanical, Silver and Neon bypass this
-  dispatcher entirely and redraw their own whole row each tick
-  (`VideoPlayer::draw()`, `drawPhotoRow()`, `drawNeonDigitRow()`), since none
-  of them fit the fixed per-cell column grid the other two share. Neon also
-  redraws its corner astronaut animation (`drawNeonAnimFrame()`, reading
-  baked frames from `NeonAstroAnim.h`) on its own faster timer, independent
-  of whether the digits changed. `ClockDisplay::nextFace()`
+  based on `currentFace` - Video, Botanical, Silver, Neon and Custom bypass
+  this dispatcher entirely and redraw their own whole row each tick
+  (`VideoPlayer::draw()`, `drawPhotoRow()`, `drawNeonDigitRow()`,
+  `drawCustomFaceRow()`), since none of them fit the fixed per-cell column
+  grid the other two share. Neon also redraws its corner astronaut
+  animation (`drawNeonAnimFrame()`, reading baked frames from
+  `NeonAstroAnim.h`) on its own faster timer, independent of whether the
+  digits changed. Custom Face reads its artwork from SD at runtime instead
+  of PROGMEM (see `custom_face.h`) - everything else here is baked in at
+  compile time. `ClockDisplay::nextFace()`
   cycles through the
   `ClockFaceId` enum (`FACE_COUNT` faces total) and is wired to a LEFT/RIGHT
   tap in `ESP32_WiFi_Clock.ino`. A face that wants its own smooth font

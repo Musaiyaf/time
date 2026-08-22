@@ -49,6 +49,7 @@
 #include "calendar_events.h"
 #include "buzzer.h"
 #include "alarm.h"
+#include "custom_face.h"
 
 WebServer server(80);
 DNSServer dnsServer;
@@ -90,6 +91,7 @@ void setup() {
   CalendarEvents::begin();   // holidays are fetched fresh once online
   Buzzer::begin();           // loads the saved on/off state for button clicks
   Alarm::begin();            // loads the saved alarm on/off state and time
+  CustomFace::begin();       // restores the last-selected Custom Face, if any (needs SdCard::begin() above)
 
   // Hold the OK button for 3s right after boot to wipe saved WiFi. This
   // only runs once, here, before Menu::begin() sets up button polling for
