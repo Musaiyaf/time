@@ -256,8 +256,9 @@ a soft glow on a plain black background, with a matching gunmetal status
 bar that gets the same glossy top-edge highlight as the digits
 themselves; [**Neon**](#neon-face), glowing cyan 7-segment digits on
 black with a small looping astronaut animation beside them; and
-[**Hero**](#hero-face), embossed web-textured digits over your own
-looping background video, with no status bar at all. Turning on
+[**Hero**](#hero-face), embossed web-textured digits beside a small
+looping animated figure, baked in and needing no SD card, with no
+status bar at all. Turning on
 [**Custom Face**](#custom-face) adds an eighth: whichever face you've
 built yourself and saved to the SD card (or a "pick one" message if you
 haven't). The status bar re-skins to match whichever face is active (or
@@ -333,28 +334,33 @@ this face was built from.
 
 ### Hero Face
 
-Shares its background with [Video Wallpaper](#video-wallpaper) - same
-upload flow, same `/video/video.bin` on the SD card, same fullscreen no
-status bar look - but instead of a bare video loop, HH:MM:SS is drawn
-over it in embossed, web-textured digits (`HeroDigits.h`) with a red
-upper half and a blue lower half, in a small font-specimen image, and
-each pair (HH / MM / SS) gets a little extra breathing room around its
-colon so the three read as groups rather than one run of six digits.
+No status bar: HH:MM:SS in embossed, web-textured digits (`HeroDigits.h`,
+red upper half, blue lower half) beside a small looping animated figure
+(`HeroAnim.h`) - both baked straight into the firmware, so unlike Video
+Wallpaper this face needs no SD card and no web portal upload at all;
+it works the moment you flash it, the same way Botanical/Silver/Neon do.
+Each HH/MM/SS pair gets a little extra breathing room around its colon
+so the three read as groups rather than one run of six digits.
 
-The digit glyphs are baked with a transparent chroma key
-(`HERO_TRANSPARENT_KEY` in `HeroDigits.h`) rather than matted onto a
-solid colour the way Botanical/Silver's photo digits are: those faces
-draw over a fixed background, but this one draws over a video frame
-that's different every time, so a matted glyph would paint a stale
-rectangle over whatever's playing underneath. `tft.pushImage()`'s
-transparent-colour overload skips exactly those pixels instead.
+The animation started life as a fan-made wallpaper video clip - full
+video frames at any usable resolution would have been several MB, far
+more than fits in flash next to everything else here. Two things made
+baking it in practical instead: its background never moves at all, only
+the small figure in it does, so only that figure needs to be an
+animated sprite (the rest of the screen is one flat fill colour,
+`COL_HERO_BG`) - and the clip turned out to already be 8 back-to-back
+repeats of one ~4 second swing (confirmed by diffing frames a period
+apart: mean pixel difference ~1.6/255, i.e. imperceptible), so only that
+one period needed baking rather than the whole clip. The result
+(`HeroAnim.h`, 24 frames at 96x66) is about 300KB of PROGMEM - the same
+"small baked RGB565 sprite sheet, redrawn on its own timer" trick Neon
+Face's corner astronaut already uses, just applied a second time.
 
-Since there's no cheap way to ask `VideoPlayer` whether a given tick
-actually blitted a new frame, the digit row is simply redrawn every
-tick rather than only when the digits change - a handful of small
-image pushes on top of a video that's already being redrawn at its own
-pace, not a new expensive operation. Same no-SD/no-video fallback
-message as Video Wallpaper if nothing's been uploaded yet.
+Because the background is a fixed colour rather than a live video frame,
+neither the animation frames nor the digit glyphs need any transparency
+handling - both are plain opaque bitmaps matted onto `COL_HERO_BG` at
+bake time, the same way Botanical/Silver's photo digits are matted onto
+their own background colour.
 
 ### Custom Face
 
@@ -579,13 +585,14 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   based on `currentFace` - Video, Botanical, Silver, Neon, Hero and Custom
   bypass this dispatcher entirely and redraw their own whole row each tick
   (`VideoPlayer::draw()`, `drawPhotoRow()`, `drawNeonDigitRow()`,
-  `drawHeroFaceRow()`, `drawCustomFaceRow()`), since none of them fit the
-  fixed per-cell column grid the other two share. Neon also redraws its corner astronaut
-  animation (`drawNeonAnimFrame()`, reading baked frames from
-  `NeonAstroAnim.h`) on its own faster timer, independent of whether the
+  `drawHeroDigitRow()`, `drawCustomFaceRow()`), since none of them fit the
+  fixed per-cell column grid the other two share. Neon and Hero also each
+  redraw their own corner animation (`drawNeonAnimFrame()`/
+  `drawHeroAnimFrame()`, reading baked frames from `NeonAstroAnim.h`/
+  `HeroAnim.h`) on its own faster timer, independent of whether the
   digits changed. Custom Face reads its artwork from SD at runtime instead
-  of PROGMEM (see `custom_face.h`) - everything else here is baked in at
-  compile time. `ClockDisplay::nextFace()`
+  of PROGMEM (see `custom_face.h`) - everything else here, Hero Face
+  included, is baked in at compile time. `ClockDisplay::nextFace()`
   cycles through the
   `ClockFaceId` enum (`FACE_COUNT` faces total) and is wired to a LEFT/RIGHT
   tap in `ESP32_WiFi_Clock.ino`. A face that wants its own smooth font

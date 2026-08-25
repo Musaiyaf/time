@@ -6,6 +6,7 @@
 #include "SilverDigits.h"
 #include "NeonAstroAnim.h"
 #include "HeroDigits.h"
+#include "HeroAnim.h"
 #include "custom_face.h"
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
@@ -32,6 +33,7 @@ TFT_eSprite wifiSpr(&tft);
 TFT_eSprite photoDigitSpr(&tft); // Botanical/Silver faces - see drawPhotoRow()
 TFT_eSprite neonDigitSpr(&tft);  // Neon face's own glowing digit row - see drawNeonDigitRow()
 TFT_eSprite neonAnimSpr(&tft);   // Neon face's corner astronaut - see drawNeonAnimFrame()
+TFT_eSprite heroAnimSpr(&tft);   // Hero Face's swinging figure - see drawHeroAnimFrame()
 
 // ---- Theme colours (approximating the reference photo) -------------
 const uint16_t COL_BG        = TFT_BLACK;
@@ -678,59 +680,59 @@ void drawNeonAnimFrame() {
 }
 
 // ---- Hero Face -------------------------------------------------------
-// HH:MM:SS overlaid on a fullscreen looping video (the SAME clip Video
-// Face plays - see video_player.h, there's only one saved video slot -
-// this is just a second way to show it), with no status bar at all: the
-// digits are the only thing drawn on top.
+// HH:MM:SS beside a small looping animated figure (HeroAnim.h), on a flat
+// background colour - no status bar. Unlike Video Face, nothing here
+// depends on an SD card or a web portal upload: the animation and the
+// digit glyphs (HeroDigits.h) are both baked straight into the firmware,
+// the same way Neon Face's corner astronaut is - this face just does the
+// same trick twice (a swinging figure AND a digit row, instead of one
+// astronaut beside a 7-segment row).
 //
-// The digit glyphs (HeroDigits.h) are embossed web-textured numerals
-// baked with a chroma-key transparent background (HERO_TRANSPARENT_KEY)
-// rather than matted onto a solid colour the way Botanical/Silver's photo
-// digits are - those faces draw over a fixed background, but this one
-// draws over a video frame that's different every time, so a matted
-// glyph would paint a stale rectangle over it. tft.pushImage()'s
-// transparent-colour overload skips exactly those pixels, letting the
-// video show through everywhere the glyph itself isn't.
-//
-// VideoPlayer::draw() is self-paced and no-ops most calls (only actually
-// blits when the clip's own frame interval has elapsed), but a call that
-// DOES blit overwrites the whole screen, glyphs included - so the glyph
-// row is simply redrawn every single tick regardless of whether the video
-// or the digits changed. That's a handful of small pushImage calls
-// against a video already being redrawn at its own cadence, not a new
-// expensive full-screen operation.
+// HeroAnim.h's own header comment has the story of how a fan-made
+// wallpaper clip (a couple of MB as raw video) turned into ~300KB of
+// PROGMEM: the clip's background never moves at all, only the figure
+// does, and that figure turned out to already be 8 back-to-back repeats
+// of one ~4 second swing - so only one period needed baking (24 frames
+// sampled evenly across it), not the whole clip. Both the animation
+// frames and the digit glyphs are plain opaque bitmaps matted onto
+// COL_HERO_BG at bake time - no transparency handling needed, since this
+// face's background is one fixed colour rather than a live video frame.
 const int HERO_GAP = 3;       // within a HH/MM/SS pair
 const int HERO_PAIR_GAP = 9;  // wider, around each colon - groups the pairs
-const int HERO_ROW_CY = 127;  // row's vertical centre - clears the video's subject
-const uint16_t COL_HERO_COLON = 0xD61E; // sampled red dot, matches the glyphs' own red
+const int HERO_ROW_CY = 127;  // digit row's vertical centre
+const int HERO_ROW_H = 86;    // >= every glyph's shared height (85) - see the
+                              // clear-before-redraw note in drawHeroDigitRow()
+const int HERO_ANIM_X = (SCR_W - HERO_ANIM_W) / 2;
+const int HERO_ANIM_Y = 2;
+const uint16_t COL_HERO_BG    = 0xF77C; // matches the source clip's own background
+const uint16_t COL_HERO_COLON = 0xD61E; // sampled red, matches the glyphs' own red
 
-void drawHeroColonDot(int cx, int cy) {
-  // 0x00FFFFFF is fillSmoothCircle's sentinel for "blend the anti-aliased
-  // edge against whatever's already on screen" (it reads the pixel back
-  // instead of a fixed colour) - the only option here, since the pixels
-  // behind this dot are a video frame, not one of this firmware's own
-  // fixed background colours.
-  tft.fillSmoothCircle(cx, cy, 6, COL_HERO_COLON, 0x00FFFFFF);
+int heroAnimFrame = 0;
+unsigned long heroAnimLastMs = 0;
+
+// Same manual pgm_read_word loop drawNeonAnimFrame() uses for the same
+// kind of baked RGB565 sprite sheet.
+void drawHeroAnimFrame() {
+  const uint16_t *src = HERO_ANIM_FRAMES[heroAnimFrame];
+  for (int y = 0; y < HERO_ANIM_H; y++) {
+    for (int x = 0; x < HERO_ANIM_W; x++) {
+      heroAnimSpr.drawPixel(x, y, pgm_read_word(&src[y * HERO_ANIM_W + x]));
+    }
+  }
+  heroAnimSpr.pushSprite(HERO_ANIM_X, HERO_ANIM_Y);
 }
 
-void drawHeroFaceRow(const char *buf) {
-  if (VideoPlayer::matchesSize(SCR_W, SCR_H)) {
-    VideoPlayer::draw(tft, 0, 0, SCR_W, SCR_H);
-  } else {
-    tft.fillRect(0, 0, SCR_W, SCR_H, COL_BG);
-    tft.setFreeFont(&FreeSansBold9pt7b);
-    tft.setTextColor(TFT_WHITE, COL_BG);
-    tft.setTextDatum(MC_DATUM);
-    if (VideoPlayer::isAvailable()) {
-      tft.drawString("Saved video is the wrong size", SCR_W / 2, SCR_H / 2 - 12);
-      tft.drawString("Re-upload it from the web portal", SCR_W / 2, SCR_H / 2 + 12);
-    } else {
-      tft.drawString("No video saved", SCR_W / 2, SCR_H / 2 - 12);
-      tft.drawString("Upload one from the web portal", SCR_W / 2, SCR_H / 2 + 12);
-    }
-    tft.setFreeFont(nullptr);
-    return; // nothing to overlay digits on
-  }
+void drawHeroColonDot(int cx, int cy) {
+  tft.fillSmoothCircle(cx, cy, 6, COL_HERO_COLON, COL_HERO_BG);
+}
+
+void drawHeroDigitRow(const char *buf, bool colonVisible) {
+  // Glyphs are variable-width ('1' is much narrower than '0'), so the
+  // row's total width - and thus its centred start x - shifts from one
+  // redraw to the next. Clearing a fixed-height band the full screen
+  // width first means that shift never leaves a stale sliver of a wider
+  // previous digit peeking out from behind a narrower new one.
+  tft.fillRect(0, HERO_ROW_CY - HERO_ROW_H / 2, SCR_W, HERO_ROW_H, COL_HERO_BG);
 
   const PhotoDigit *digits[6];
   int rowW = 0;
@@ -744,10 +746,10 @@ void drawHeroFaceRow(const char *buf) {
   int topY = HERO_ROW_CY - HERO_DIGITS[0].h / 2; // every glyph shares one height
   for (int i = 0; i < 6; i++) {
     const PhotoDigit &d = *digits[i];
-    tft.pushImage(x, topY, d.w, d.h, d.data, HERO_TRANSPARENT_KEY);
+    tft.pushImage(x, topY, d.w, d.h, d.data);
     x += d.w;
     if (i == 1 || i == 3) {
-      drawHeroColonDot(x + HERO_PAIR_GAP / 2, HERO_ROW_CY);
+      if (colonVisible) drawHeroColonDot(x + HERO_PAIR_GAP / 2, HERO_ROW_CY);
       x += HERO_PAIR_GAP;
     } else if (i != 5) {
       x += HERO_GAP;
@@ -994,6 +996,7 @@ void begin() {
   photoDigitSpr.setColorDepth(16);
   neonDigitSpr.setColorDepth(16);
   neonAnimSpr.setColorDepth(16);
+  heroAnimSpr.setColorDepth(16);
 
   digitSpr.createSprite(CELL_DIGIT_W, CLOCK_H);
   colonSpr.createSprite(CELL_COLON_W, CLOCK_H);
@@ -1005,6 +1008,7 @@ void begin() {
 
   neonDigitSpr.createSprite(NEON_ROW_W + 2 * NEON_ROW_MARGIN, NEON_DH + 2 * NEON_ROW_MARGIN);
   neonAnimSpr.createSprite(NEON_ANIM_SIZE, NEON_ANIM_SIZE);
+  heroAnimSpr.createSprite(HERO_ANIM_W, HERO_ANIM_H);
   neonRowX = 6;
   neonRowY = CLOCK_TOP + (CLOCK_H - (NEON_DH + 2 * NEON_ROW_MARGIN)) / 2;
   neonAnimX = neonRowX + (NEON_ROW_W + 2 * NEON_ROW_MARGIN) + 8;
@@ -1025,11 +1029,10 @@ void begin() {
   gridDrawn = true;
 }
 
-// Restarts video playback from frame 0 every time Video Face or Hero Face
-// (the two faces that read the same SD-stored clip - see VideoPlayer) is
-// (re)entered, rather than resuming mid-clip.
+// Restarts Video Face playback from frame 0 every time it's (re)entered,
+// rather than resuming mid-clip.
 void ensureVideoFaceEntered() {
-  if (currentFace == FACE_VIDEO || currentFace == FACE_HERO) VideoPlayer::reset();
+  if (currentFace == FACE_VIDEO) VideoPlayer::reset();
 }
 
 // Cycles to the next/previous clock face and forces a full repaint on the
@@ -1106,6 +1109,9 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
     lastColonVisible = -1;
     for (int i = 0; i < CELL_COUNT; i++) lastDigit[i] = 0;
     for (int i = 0; i < CELL_COUNT; i++) digitAnims[i].active = false;
+    // Hero Face has no status bar to paint over the black drawGrid() just
+    // left behind - its own background is a flat colour, not black.
+    if (currentFace == FACE_HERO) tft.fillScreen(COL_HERO_BG);
   }
 
   // ---- clock digits ----
@@ -1177,14 +1183,24 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
       drawNeonAnimFrame();
     }
   } else if (currentFace == FACE_HERO) {
-    // Unlike every other face above, this one is redrawn unconditionally
-    // on every tick rather than gated behind a "did anything change"
-    // check - see drawHeroFaceRow()'s own comment for why: the video
-    // frame underneath can change independently of the clock digits, and
-    // there's no cheap way to ask VideoPlayer whether this particular
-    // call actually blitted a new one.
-    drawHeroFaceRow(buf);
-    for (int i = 0; i < 6; i++) lastDigit[i] = buf[i];
+    // Same "whole row, only on change" digit redraw Botanical/Silver/Neon
+    // use above, plus a second, independent redraw for the swinging
+    // figure - it advances on its own timer regardless of whether the
+    // digits changed, the same way Neon's astronaut does.
+    bool changed = (colonVisible != lastColonVisible);
+    for (int i = 0; i < 6; i++) {
+      if (lastDigit[i] != buf[i]) changed = true;
+    }
+    if (changed) {
+      drawHeroDigitRow(buf, colonVisible);
+      for (int i = 0; i < 6; i++) lastDigit[i] = buf[i];
+    }
+    unsigned long nowMs = millis();
+    if (nowMs - heroAnimLastMs >= HERO_ANIM_FRAME_MS) {
+      heroAnimLastMs = nowMs;
+      heroAnimFrame = (heroAnimFrame + 1) % HERO_ANIM_FRAME_COUNT;
+      drawHeroAnimFrame();
+    }
   } else if (currentFace == FACE_CUSTOM) {
     // Same "whole row, only on change" pattern Botanical/Silver/Neon use
     // above, plus one more thing that can change underneath this face
