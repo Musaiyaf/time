@@ -254,11 +254,9 @@ sampled from that same artwork, with a matching green status bar and
 cream text; [**Silver**](#silver-face), chrome-gradient numerals with
 a soft glow on a plain black background, with a matching gunmetal status
 bar that gets the same glossy top-edge highlight as the digits
-themselves; [**Neon**](#neon-face), glowing cyan 7-segment digits on
-black with a small looping astronaut animation beside them; and
-[**Dial**](#dial-face), a smartwatch-style gauge with the hour standing
-alone in big digits and the minute riding a two-ring tick scale. Turning
-on [**Custom Face**](#custom-face) adds an eighth: whichever face you've
+themselves; and [**Neon**](#neon-face), glowing cyan 7-segment digits on
+black with a small looping astronaut animation beside them. Turning on
+[**Custom Face**](#custom-face) adds a seventh: whichever face you've
 built yourself and saved to the SD card (or a "pick one" message if you
 haven't). The status bar re-skins to match whichever face is active (or
 hides entirely on Video). The choice of *which* face is showing isn't
@@ -330,52 +328,6 @@ whole clip so it never jitters as it tumbles). The status badges go
 edge-to-edge with the black background - no visible pill shape, just
 cyan text floating directly on the panel, matching the reference photo
 this face was built from.
-
-### Dial Face
-
-A two-tier gauge, modelled on a smartwatch dial. The hour stands alone on
-the left in the big Fredoka digits. The current minute sits inside an open
-"stadium" - a rounded cap on the left with two rails running out to the
-right and no closing cap - and two concentric rings of tick marks sweep
-out past that open mouth: the inner ring counts the minutes either side of
-now, the outer one the seconds, with an amber dot riding the outer ring at
-the live position. Both rings share one centre, off to the left of the
-stadium's mouth, so a tick is almost horizontal near the middle and tilts
-progressively further as it sweeps up or down, the way a speedometer scale
-does.
-
-The scale numbers are placed **first** and a tick underneath one is
-skipped, so no number ever has to be nudged off its ring's radius to dodge
-a collision - which is what makes the scale read as one clean arc rather
-than digits scattered at assorted distances.
-
-**The numbers hug the minute** rather than being pushed out clear of the
-rails, because that is what the reference face does - at some minutes one
-of them sits directly underneath the minute digits. The cost is that a
-number does sometimes land on a rail, and the rail breaks around it.
-
-That break is bounded to **one per frame**, which is what keeps it looking
-deliberate instead of like a stray rail. A number's centre comes within
-~8px of a rail when `|DIAL_LBL_R_IN · sin(k · DIAL_STEP_IN)|` falls in
-`[22, 38]`, which at radius 73 is true for `|k| = 3` and `4` and nothing
-else. The numbers shown are the multiples of 5 near the minute, so their
-`k` values are all congruent mod 5 (`k = -(mm mod 5) + 5n`) - and of those
-four colliding values, exactly one is congruent to any given residue. So
-there is at most a single break, in a single rail, splitting it into two
-long pieces. The seconds ring is deliberately left unnumbered: numbering
-it too was what let three breaks land in the two rails at once and leave
-stubs floating between them.
-
-The cap and the rails are drawn to the same 2px band. `drawSmoothArc`'s
-radii are *inclusive*, so `(r, r-1)` covers rows `gy-r … gy-r+1` at the top
-tangent and `gy+r-1 … gy+r` at the bottom; the rails use exactly those
-rows. Getting this off by one leaves a visible step where the cap meets
-each rail.
-
-Everything from the stadium rightwards goes through one offscreen sprite,
-repainted once a second (the seconds ring moves); the hour digits sit
-entirely to the left of it and are pushed separately, only when the hour
-actually changes.
 
 ### Custom Face
 
@@ -597,13 +549,11 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   font, but a self-service option that doesn't need a TTF at all.
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
   per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`)
-  based on `currentFace` - Video, Botanical, Silver, Neon, Dial and Custom
-  bypass this dispatcher entirely and redraw their own whole row each tick
+  based on `currentFace` - Video, Botanical, Silver, Neon and Custom bypass
+  this dispatcher entirely and redraw their own whole row each tick
   (`VideoPlayer::draw()`, `drawPhotoRow()`, `drawNeonDigitRow()`,
-  `drawDialGauge()`, `drawCustomFaceRow()`), since none of them fit the
-  fixed per-cell column grid the other two share. Dial splits its repaint
-  in two - `drawDialHourDigit()` only when the hour changes, the gauge
-  sprite every second. Neon also redraws its corner astronaut
+  `drawCustomFaceRow()`), since none of them fit the fixed per-cell column
+  grid the other two share. Neon also redraws its corner astronaut
   animation (`drawNeonAnimFrame()`, reading baked frames from
   `NeonAstroAnim.h`) on its own faster timer, independent of whether the
   digits changed. Custom Face reads its artwork from SD at runtime instead
