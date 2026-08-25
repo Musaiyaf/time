@@ -239,7 +239,7 @@ active one's name; only appears when that feature is turned on - see
 its own section below), and **About**.
 
 **Switching clock faces:** while the clock is running, LEFT/RIGHT taps
-cycle between clock faces (six by default, seven with
+cycle between clock faces (seven by default, eight with
 [Custom Face](#custom-face) turned on): the rainbow grid face, where each digit
 rolls to its next value like a train on a vertical rail track - the old
 digit slides up and off the top of its cell while the new one rises from
@@ -254,9 +254,11 @@ sampled from that same artwork, with a matching green status bar and
 cream text; [**Silver**](#silver-face), chrome-gradient numerals with
 a soft glow on a plain black background, with a matching gunmetal status
 bar that gets the same glossy top-edge highlight as the digits
-themselves; and [**Neon**](#neon-face), glowing cyan 7-segment digits on
-black with a small looping astronaut animation beside them. Turning on
-[**Custom Face**](#custom-face) adds a seventh: whichever face you've
+themselves; [**Neon**](#neon-face), glowing cyan 7-segment digits on
+black with a small looping astronaut animation beside them; and
+[**Hero**](#hero-face), embossed web-textured digits over your own
+looping background video, with no status bar at all. Turning on
+[**Custom Face**](#custom-face) adds an eighth: whichever face you've
 built yourself and saved to the SD card (or a "pick one" message if you
 haven't). The status bar re-skins to match whichever face is active (or
 hides entirely on Video). The choice of *which* face is showing isn't
@@ -328,6 +330,31 @@ whole clip so it never jitters as it tumbles). The status badges go
 edge-to-edge with the black background - no visible pill shape, just
 cyan text floating directly on the panel, matching the reference photo
 this face was built from.
+
+### Hero Face
+
+Shares its background with [Video Wallpaper](#video-wallpaper) - same
+upload flow, same `/video/video.bin` on the SD card, same fullscreen no
+status bar look - but instead of a bare video loop, HH:MM:SS is drawn
+over it in embossed, web-textured digits (`HeroDigits.h`) with a red
+upper half and a blue lower half, in a small font-specimen image, and
+each pair (HH / MM / SS) gets a little extra breathing room around its
+colon so the three read as groups rather than one run of six digits.
+
+The digit glyphs are baked with a transparent chroma key
+(`HERO_TRANSPARENT_KEY` in `HeroDigits.h`) rather than matted onto a
+solid colour the way Botanical/Silver's photo digits are: those faces
+draw over a fixed background, but this one draws over a video frame
+that's different every time, so a matted glyph would paint a stale
+rectangle over whatever's playing underneath. `tft.pushImage()`'s
+transparent-colour overload skips exactly those pixels instead.
+
+Since there's no cheap way to ask `VideoPlayer` whether a given tick
+actually blitted a new frame, the digit row is simply redrawn every
+tick rather than only when the digits change - a handful of small
+image pushes on top of a video that's already being redrawn at its own
+pace, not a new expensive operation. Same no-SD/no-video fallback
+message as Video Wallpaper if nothing's been uploaded yet.
 
 ### Custom Face
 
@@ -549,11 +576,11 @@ Arduino IDE's "Upload Using Programmer" / esptool GUI tools.
   font, but a self-service option that doesn't need a TTF at all.
 - **Clock faces**: `drawDigitCell()` in `clock_display.cpp` dispatches to a
   per-face renderer (`drawRainbowGridDigitCell()`, `drawSevenSegDigitCell()`)
-  based on `currentFace` - Video, Botanical, Silver, Neon and Custom bypass
-  this dispatcher entirely and redraw their own whole row each tick
+  based on `currentFace` - Video, Botanical, Silver, Neon, Hero and Custom
+  bypass this dispatcher entirely and redraw their own whole row each tick
   (`VideoPlayer::draw()`, `drawPhotoRow()`, `drawNeonDigitRow()`,
-  `drawCustomFaceRow()`), since none of them fit the fixed per-cell column
-  grid the other two share. Neon also redraws its corner astronaut
+  `drawHeroFaceRow()`, `drawCustomFaceRow()`), since none of them fit the
+  fixed per-cell column grid the other two share. Neon also redraws its corner astronaut
   animation (`drawNeonAnimFrame()`, reading baked frames from
   `NeonAstroAnim.h`) on its own faster timer, independent of whether the
   digits changed. Custom Face reads its artwork from SD at runtime instead

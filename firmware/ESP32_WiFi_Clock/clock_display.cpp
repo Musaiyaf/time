@@ -5,6 +5,7 @@
 #include "BotanicalDigits.h"
 #include "SilverDigits.h"
 #include "NeonAstroAnim.h"
+#include "HeroDigits.h"
 #include "custom_face.h"
 #include <TFT_eSPI.h>
 #include "FredokaDigits87.h"
@@ -200,16 +201,17 @@ enum ClockFaceId {
   FACE_BOTANICAL = 3,
   FACE_SILVER = 4,
   FACE_NEON = 5,
-  FACE_CUSTOM = 6, // kept numbered even when disabled - see FACE_COUNT below
+  FACE_HERO = 6,
+  FACE_CUSTOM = 7, // kept numbered even when disabled - see FACE_COUNT below
 #if FEATURE_CUSTOM_FACE
-  FACE_COUNT = 7
+  FACE_COUNT = 8
 #else
   // Excludes FACE_CUSTOM from nextFace()/prevFace()'s (currentFace+1) %
   // FACE_COUNT cycling - since it's the highest-numbered face, dropping
   // the count below it is all that's needed, no renumbering. All of the
   // face's own rendering code (below, and custom_face.cpp) stays compiled
   // in either way - only reachability changes.
-  FACE_COUNT = 6
+  FACE_COUNT = 7
 #endif
 };
 int currentFace = FACE_RAINBOW_GRID;
@@ -675,6 +677,84 @@ void drawNeonAnimFrame() {
   neonAnimSpr.pushSprite(neonAnimX, neonAnimY);
 }
 
+// ---- Hero Face -------------------------------------------------------
+// HH:MM:SS overlaid on a fullscreen looping video (the SAME clip Video
+// Face plays - see video_player.h, there's only one saved video slot -
+// this is just a second way to show it), with no status bar at all: the
+// digits are the only thing drawn on top.
+//
+// The digit glyphs (HeroDigits.h) are embossed web-textured numerals
+// baked with a chroma-key transparent background (HERO_TRANSPARENT_KEY)
+// rather than matted onto a solid colour the way Botanical/Silver's photo
+// digits are - those faces draw over a fixed background, but this one
+// draws over a video frame that's different every time, so a matted
+// glyph would paint a stale rectangle over it. tft.pushImage()'s
+// transparent-colour overload skips exactly those pixels, letting the
+// video show through everywhere the glyph itself isn't.
+//
+// VideoPlayer::draw() is self-paced and no-ops most calls (only actually
+// blits when the clip's own frame interval has elapsed), but a call that
+// DOES blit overwrites the whole screen, glyphs included - so the glyph
+// row is simply redrawn every single tick regardless of whether the video
+// or the digits changed. That's a handful of small pushImage calls
+// against a video already being redrawn at its own cadence, not a new
+// expensive full-screen operation.
+const int HERO_GAP = 3;       // within a HH/MM/SS pair
+const int HERO_PAIR_GAP = 9;  // wider, around each colon - groups the pairs
+const int HERO_ROW_CY = 127;  // row's vertical centre - clears the video's subject
+const uint16_t COL_HERO_COLON = 0xD61E; // sampled red dot, matches the glyphs' own red
+
+void drawHeroColonDot(int cx, int cy) {
+  // 0x00FFFFFF is fillSmoothCircle's sentinel for "blend the anti-aliased
+  // edge against whatever's already on screen" (it reads the pixel back
+  // instead of a fixed colour) - the only option here, since the pixels
+  // behind this dot are a video frame, not one of this firmware's own
+  // fixed background colours.
+  tft.fillSmoothCircle(cx, cy, 6, COL_HERO_COLON, 0x00FFFFFF);
+}
+
+void drawHeroFaceRow(const char *buf) {
+  if (VideoPlayer::matchesSize(SCR_W, SCR_H)) {
+    VideoPlayer::draw(tft, 0, 0, SCR_W, SCR_H);
+  } else {
+    tft.fillRect(0, 0, SCR_W, SCR_H, COL_BG);
+    tft.setFreeFont(&FreeSansBold9pt7b);
+    tft.setTextColor(TFT_WHITE, COL_BG);
+    tft.setTextDatum(MC_DATUM);
+    if (VideoPlayer::isAvailable()) {
+      tft.drawString("Saved video is the wrong size", SCR_W / 2, SCR_H / 2 - 12);
+      tft.drawString("Re-upload it from the web portal", SCR_W / 2, SCR_H / 2 + 12);
+    } else {
+      tft.drawString("No video saved", SCR_W / 2, SCR_H / 2 - 12);
+      tft.drawString("Upload one from the web portal", SCR_W / 2, SCR_H / 2 + 12);
+    }
+    tft.setFreeFont(nullptr);
+    return; // nothing to overlay digits on
+  }
+
+  const PhotoDigit *digits[6];
+  int rowW = 0;
+  for (int i = 0; i < 6; i++) {
+    digits[i] = &HERO_DIGITS[buf[i] - '0'];
+    rowW += digits[i]->w;
+    if (i != 5) rowW += (i == 1 || i == 3) ? HERO_PAIR_GAP : HERO_GAP;
+  }
+
+  int x = (SCR_W - rowW) / 2;
+  int topY = HERO_ROW_CY - HERO_DIGITS[0].h / 2; // every glyph shares one height
+  for (int i = 0; i < 6; i++) {
+    const PhotoDigit &d = *digits[i];
+    tft.pushImage(x, topY, d.w, d.h, d.data, HERO_TRANSPARENT_KEY);
+    x += d.w;
+    if (i == 1 || i == 3) {
+      drawHeroColonDot(x + HERO_PAIR_GAP / 2, HERO_ROW_CY);
+      x += HERO_PAIR_GAP;
+    } else if (i != 5) {
+      x += HERO_GAP;
+    }
+  }
+}
+
 // ---- Custom Face ---------------------------------------------------------
 // Fully user-designed clock face: every digit (and the colon) is its own
 // image the user supplied in tools/make_custom_face.html, plus an optional
@@ -945,10 +1025,11 @@ void begin() {
   gridDrawn = true;
 }
 
-// Restarts Video Face playback from frame 0 every time it's (re)entered,
-// rather than resuming mid-clip.
+// Restarts video playback from frame 0 every time Video Face or Hero Face
+// (the two faces that read the same SD-stored clip - see VideoPlayer) is
+// (re)entered, rather than resuming mid-clip.
 void ensureVideoFaceEntered() {
-  if (currentFace == FACE_VIDEO) VideoPlayer::reset();
+  if (currentFace == FACE_VIDEO || currentFace == FACE_HERO) VideoPlayer::reset();
 }
 
 // Cycles to the next/previous clock face and forces a full repaint on the
@@ -1095,6 +1176,15 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
       neonAnimFrame = (neonAnimFrame + 1) % NEON_ANIM_FRAME_COUNT;
       drawNeonAnimFrame();
     }
+  } else if (currentFace == FACE_HERO) {
+    // Unlike every other face above, this one is redrawn unconditionally
+    // on every tick rather than gated behind a "did anything change"
+    // check - see drawHeroFaceRow()'s own comment for why: the video
+    // frame underneath can change independently of the clock digits, and
+    // there's no cheap way to ask VideoPlayer whether this particular
+    // call actually blitted a new one.
+    drawHeroFaceRow(buf);
+    for (int i = 0; i < 6; i++) lastDigit[i] = buf[i];
   } else if (currentFace == FACE_CUSTOM) {
     // Same "whole row, only on change" pattern Botanical/Silver/Neon use
     // above, plus one more thing that can change underneath this face
@@ -1160,11 +1250,11 @@ void update(const struct tm &timeinfo, bool timeValid, bool wifiConnected, int r
   }
   lastColonVisible = colonVisible;
 
-  // Video Face uses the full screen (see its branch above, which draws
-  // 0..SCR_H rather than the usual CLOCK_TOP..CLOCK_H) instead of the
-  // status bar + digit area every other face shares, so none of that
-  // applies while it's active.
-  if (currentFace == FACE_VIDEO) return;
+  // Video Face and Hero Face both use the full screen (see their branches
+  // above, which draw 0..SCR_H rather than the usual CLOCK_TOP..CLOCK_H)
+  // instead of the status bar + digit area every other face shares, so
+  // none of that applies while either is active.
+  if (currentFace == FACE_VIDEO || currentFace == FACE_HERO) return;
 
   // ---- year badge ----
   char yearBuf[5];
