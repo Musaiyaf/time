@@ -34,6 +34,8 @@ TFT_eSprite photoDigitSpr(&tft); // Botanical/Silver faces - see drawPhotoRow()
 TFT_eSprite neonDigitSpr(&tft);  // Neon face's own glowing digit row - see drawNeonDigitRow()
 TFT_eSprite neonAnimSpr(&tft);   // Neon face's corner astronaut - see drawNeonAnimFrame()
 TFT_eSprite heroAnimSpr(&tft);   // Hero Face's swinging figure - see drawHeroAnimFrame()
+TFT_eSprite heroGlyphSpr(&tft);  // Hero Face's digit glyphs - see drawHeroGlyph()
+int heroGlyphSprW = 0, heroGlyphSprH = 0; // current size heroGlyphSpr is created at
 
 // ---- Theme colours (approximating the reference photo) -------------
 const uint16_t COL_BG        = TFT_BLACK;
@@ -697,8 +699,8 @@ void drawNeonAnimFrame() {
 // frames and the digit glyphs are plain opaque bitmaps matted onto
 // COL_HERO_BG at bake time - no transparency handling needed, since this
 // face's background is one fixed colour rather than a live video frame.
-const int HERO_GAP = 3;       // within a HH/MM/SS pair
-const int HERO_PAIR_GAP = 9;  // wider, around each colon - groups the pairs
+const int HERO_GAP = 3;        // within a HH/MM/SS pair
+const int HERO_PAIR_GAP = 18;  // wider, around each colon - groups the pairs
 const int HERO_ROW_CY = 127;  // digit row's vertical centre
 const int HERO_ROW_H = 86;    // >= every glyph's shared height (85) - see the
                               // clear-before-redraw note in drawHeroDigitRow()
@@ -722,8 +724,32 @@ void drawHeroAnimFrame() {
   heroAnimSpr.pushSprite(HERO_ANIM_X, HERO_ANIM_Y);
 }
 
-void drawHeroColonDot(int cx, int cy) {
-  tft.fillSmoothCircle(cx, cy, 6, COL_HERO_COLON, COL_HERO_BG);
+// Two dots (upper/lower), like every other face's colon - not one.
+void drawHeroColonDots(int cx, int cy) {
+  const int dotGap = 14;
+  tft.fillSmoothCircle(cx, cy - dotGap, 6, COL_HERO_COLON, COL_HERO_BG);
+  tft.fillSmoothCircle(cx, cy + dotGap, 6, COL_HERO_COLON, COL_HERO_BG);
+}
+
+// tft.pushImage() called directly on a PROGMEM buffer is the exact same
+// "scrambled TV static colours" corruption video_player.cpp already found
+// and worked around (see its own comment) - copying through a sprite via
+// drawPixel()/pushSprite() instead, the same fix used there and in
+// drawHeroAnimFrame() above, is what actually renders these glyphs
+// correctly. Re-sized per glyph since they're not all the same width.
+void drawHeroGlyph(const PhotoDigit &d, int x, int y) {
+  if (heroGlyphSprW != d.w || heroGlyphSprH != d.h) {
+    heroGlyphSpr.createSprite(d.w, d.h);
+    heroGlyphSprW = d.w;
+    heroGlyphSprH = d.h;
+  }
+  for (int py = 0; py < d.h; py++) {
+    const uint16_t *row = d.data + (size_t)py * d.w;
+    for (int px = 0; px < d.w; px++) {
+      heroGlyphSpr.drawPixel(px, py, pgm_read_word(&row[px]));
+    }
+  }
+  heroGlyphSpr.pushSprite(x, y);
 }
 
 void drawHeroDigitRow(const char *buf, bool colonVisible) {
@@ -746,10 +772,10 @@ void drawHeroDigitRow(const char *buf, bool colonVisible) {
   int topY = HERO_ROW_CY - HERO_DIGITS[0].h / 2; // every glyph shares one height
   for (int i = 0; i < 6; i++) {
     const PhotoDigit &d = *digits[i];
-    tft.pushImage(x, topY, d.w, d.h, d.data);
+    drawHeroGlyph(d, x, topY);
     x += d.w;
     if (i == 1 || i == 3) {
-      if (colonVisible) drawHeroColonDot(x + HERO_PAIR_GAP / 2, HERO_ROW_CY);
+      if (colonVisible) drawHeroColonDots(x + HERO_PAIR_GAP / 2, HERO_ROW_CY);
       x += HERO_PAIR_GAP;
     } else if (i != 5) {
       x += HERO_GAP;
@@ -997,6 +1023,7 @@ void begin() {
   neonDigitSpr.setColorDepth(16);
   neonAnimSpr.setColorDepth(16);
   heroAnimSpr.setColorDepth(16);
+  heroGlyphSpr.setColorDepth(16); // createSprite() happens lazily, per glyph size - see drawHeroGlyph()
 
   digitSpr.createSprite(CELL_DIGIT_W, CLOCK_H);
   colonSpr.createSprite(CELL_COLON_W, CLOCK_H);
